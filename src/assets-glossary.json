@@ -1,0 +1,5 @@
+{
+    "BTC": ["BTC", "XBT"],
+    "USD": ["USD", "USDT", "USDC"],
+    "EURC": ["EUR", "EURC", "EURT"]
+}
