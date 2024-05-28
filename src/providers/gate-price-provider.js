@@ -12,7 +12,7 @@ class GatePriceProvider extends PriceProviderBase {
 
     async __loadMarkets() {
         const marketsUrl = `${baseUrl}/spot/currency_pairs`
-        const response = await this.__makeRequest(marketsUrl)
+        const response = await this.__makeRequest(marketsUrl, {timeout: 3000})
         const markets = response.data
         return markets
             .filter(market => market.trade_status.toUpperCase() === 'TRADABLE')

@@ -25,8 +25,8 @@ class OkxPriceProvider extends PriceProviderBase {
             return null
         timestamp = timestamp * 1000
         const timeframeInMs = timeframe * 60000
-        const before = timeframe - timeframeInMs
-        const after = timeframe + timeframeInMs
+        const before = timestamp - timeframeInMs
+        const after = timestamp + timeframeInMs
         //https://www.okx.com/docs-v5/en/#order-book-trading-market-data-get-candlesticks
         const klinesUrl = `${baseApiUrl}/market/candles?instId=${symbolInfo.symbol}&bar=${timeframe}m&before=${before}&after=${after}&limit=1`
         const response = await this.__makeRequest(klinesUrl)
