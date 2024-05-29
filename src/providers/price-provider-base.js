@@ -1,9 +1,17 @@
+const https = require('https')
+const http = require('http')
 const {default: axios} = require('axios')
 const OHLCV = require('../models/ohlcv')
 const {getBigIntPrice} = require('../price-utils')
 
+const httpAgent = new http.Agent({keepAlive: true, maxSockets: 50, noDelay: true})
+axios.defaults.httpAgent = httpAgent
+
+const httpsAgent = new https.Agent({keepAlive: true, maxSockets: 50, noDelay: true})
+axios.defaults.httpsAgent = httpsAgent
+
 const defaultOptions = {
-    timeout: 2000
+    timeout: 3000
 }
 
 class PriceProviderBase {
