@@ -40,7 +40,8 @@ class BinancePriceProvider extends PriceProviderBase {
             quoteVolume: Number(kline[7]),
             inversed: symbolInfo.inversed,
             source: this.name,
-            decimals
+            decimals,
+            completed: true //there is indicator to determine if the candle is closed
         })
     }
 }

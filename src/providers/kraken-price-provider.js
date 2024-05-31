@@ -44,7 +44,8 @@ class KrakenPriceProvider extends PriceProviderBase {
             quoteVolume: Number(kline[5]) * Number(kline[6]), //volume * vwap
             inversed: symbolInfo.inversed,
             source: this.name,
-            decimals
+            decimals,
+            completed: true //there is indicator to determine if the candle is closed
         })
     }
 

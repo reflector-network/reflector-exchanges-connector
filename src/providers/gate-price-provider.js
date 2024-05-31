@@ -12,7 +12,7 @@ class GatePriceProvider extends PriceProviderBase {
 
     async __loadMarkets() {
         const marketsUrl = `${baseUrl}/spot/currency_pairs`
-        const response = await this.__makeRequest(marketsUrl, {timeout: 3000})
+        const response = await this.__makeRequest(marketsUrl)
         const markets = response.data
         return markets
             .filter(market => market.trade_status.toUpperCase() === 'TRADABLE')
@@ -39,7 +39,8 @@ class GatePriceProvider extends PriceProviderBase {
             quoteVolume: kline[1],
             inversed: symbolInfo.inversed,
             source: this.name,
-            decimals
+            decimals,
+            completed: kline[7].toUpperCase() === 'TRUE'
         })
     }
 

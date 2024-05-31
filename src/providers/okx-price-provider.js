@@ -44,7 +44,8 @@ class OkxPriceProvider extends PriceProviderBase {
             quoteVolume: kline[7],
             inversed: symbolInfo.inversed,
             source: this.name,
-            decimals
+            decimals,
+            completed: !!kline[8]
         })
     }
 

@@ -3,7 +3,7 @@ const BybitPriceProvider = require('./providers/bybit-price-provider')
 const OkxPriceProvider = require('./providers/okx-price-provider')
 const KrakenPriceProvider = require('./providers/kraken-price-provider')
 const CoinbasePriceProvider = require('./providers/coinbase-price-provider')
-const GatePriceProvider = require('./providers/gate-price-provider')
+//const GatePriceProvider = require('./providers/gate-price-provider')
 const Pair = require('./models/pair')
 const {getAsset} = require('./assets-cache')
 const {getMedianPrice} = require('./price-utils')
@@ -24,7 +24,7 @@ const providers = [
     new BybitPriceProvider(),
     new OkxPriceProvider(),
     new KrakenPriceProvider(),
-    new GatePriceProvider(),
+    //new GatePriceProvider(),
     new CoinbasePriceProvider()
 ]
 
@@ -91,6 +91,11 @@ async function getOHLCVs(assets, baseAsset, timestamp, timeframe, decimals) {
     }
     const ohlcvs = {}
     const fetchPromises = []
+    //split pairs into batches of 10
+    const pairsBatches = []
+    for (let i = 0; i < pairs.length; i += 10) {
+        pairsBatches.push(pairs.slice(i, i + 10))
+    }
     for (const provider of providers) {
         const fetchOHLCVs = async () => {
             try {
@@ -102,17 +107,32 @@ async function getOHLCVs(assets, baseAsset, timestamp, timeframe, decimals) {
                         return
                     }
                 }
-                for (const pair of pairs) {
-                    try {
-                        const ohlcv = await provider.getOHLCV(pair, timestamp, timeframe, decimals)
-                        if (!ohlcv) {
-                            continue
+                for (const pairsBatch of pairsBatches) {
+                    const ohlcvPromises = []
+                    for (const pair of pairsBatch) {
+                        const getOHLCV = async () => {
+                            try {
+                                let tries = 2
+                                while (tries > 0) {
+                                    const ohlcv = await provider.getOHLCV(pair, timestamp, timeframe, decimals)
+                                    if (!ohlcv) {
+                                        return
+                                    } else if (!ohlcv.completed) {
+                                        tries--
+                                        continue
+                                    }
+                                    ohlcvs[pair.quote.name] = ohlcvs[pair.quote.name] || []
+                                    ohlcvs[pair.quote.name].push(ohlcv)
+                                    return
+                                }
+                            } catch (error) {
+                                console.warn(`Error getting price for ${pair.name} from ${provider.name}: ${error.message}`)
+                            }
                         }
-                        ohlcvs[pair.quote.name] = ohlcvs[pair.quote.name] || []
-                        ohlcvs[pair.quote.name].push(ohlcv)
-                    } catch (error) {
-                        console.warn(`Error getting price for ${pair.name} from ${provider.name}: ${error.message}`)
+                        //add promise to fetch OHLCV
+                        ohlcvPromises.push(getOHLCV())
                     }
+                    await Promise.all(ohlcvPromises)
                 }
             } catch (error) {
                 console.error(`Error fetching data from ${provider.name}: ${error.message}`)
@@ -125,4 +145,8 @@ async function getOHLCVs(assets, baseAsset, timestamp, timeframe, decimals) {
     return ohlcvs
 }
 
-module.exports = {getPrices, getOHLCVs}
+function getProvider(name) {
+    return providers.find(provider => provider.name === name)
+}
+
+module.exports = {getPrices, getOHLCVs, getProvider}
