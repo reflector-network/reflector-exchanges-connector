@@ -47,7 +47,7 @@ function getTimestamp() {
 
 const assets = [
     'BTC',
-    'USD',
+    'USDT',
     'ETH',
     'SOL',
     'ADA',
@@ -60,26 +60,12 @@ const assets = [
     'ATOM',
     'EURC',
     'AVAX',
-    'MATIC'
+    'MATIC',
+    'NON_EXISTENT'
 ]
 
 const pairs = {
-    pairs: [
-        new Pair(getAsset('BTC'), getAsset('USD')),
-        new Pair(getAsset('ETH'), getAsset('USD')),
-        new Pair(getAsset('SOL'), getAsset('USD')),
-        new Pair(getAsset('ADA'), getAsset('USD')),
-        new Pair(getAsset('AVAX'), getAsset('USD')),
-        new Pair(getAsset('DOT'), getAsset('USD')),
-        new Pair(getAsset('MATIC'), getAsset('USD')),
-        new Pair(getAsset('LINK'), getAsset('USD')),
-        new Pair(getAsset('DAI'), getAsset('USD')),
-        new Pair(getAsset('ATOM'), getAsset('USD')),
-        new Pair(getAsset('XLM'), getAsset('USD')),
-        new Pair(getAsset('UNI'), getAsset('USD')),
-        new Pair(getAsset('XRP'), getAsset('USD')),
-        new Pair(getAsset('EURC'), getAsset('USD'))
-    ],
+    normalPair: new Pair(getAsset('BTC'), getAsset('USD')),
     invertedPair: new Pair(getAsset('USD'), getAsset('BTC')),
     invalidPair: new Pair(
         getAsset('UASC'),

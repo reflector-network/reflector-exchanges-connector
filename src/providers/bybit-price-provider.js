@@ -41,6 +41,8 @@ class BybitPriceProvider extends PriceProviderBase {
             inversed: symbolInfo.inversed,
             source: this.name,
             decimals,
+            base: pair.base.name,
+            quote: pair.quote.name,
             completed: true //there is indicator to determine if the candle is closed
         })
     }

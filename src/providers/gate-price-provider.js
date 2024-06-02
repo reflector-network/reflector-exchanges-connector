@@ -40,6 +40,8 @@ class GatePriceProvider extends PriceProviderBase {
             inversed: symbolInfo.inversed,
             source: this.name,
             decimals,
+            base: pair.base.name,
+            quote: pair.quote.name,
             completed: kline[7].toUpperCase() === 'TRUE'
         })
     }

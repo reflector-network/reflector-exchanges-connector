@@ -1,12 +1,13 @@
+/*eslint-disable*/
 const BinancePriceProvider = require('./providers/binance-price-provider')
 const BybitPriceProvider = require('./providers/bybit-price-provider')
 const OkxPriceProvider = require('./providers/okx-price-provider')
 const KrakenPriceProvider = require('./providers/kraken-price-provider')
 const CoinbasePriceProvider = require('./providers/coinbase-price-provider')
-//const GatePriceProvider = require('./providers/gate-price-provider')
+const GatePriceProvider = require('./providers/gate-price-provider')
 const Pair = require('./models/pair')
-const {getAsset} = require('./assets-cache')
-const {getMedianPrice} = require('./price-utils')
+const { getAsset } = require('./assets-cache')
+const { getMedianPrice } = require('./price-utils')
 
 /**
  * @typedef {import('./models/asset')} Asset
@@ -14,17 +15,26 @@ const {getMedianPrice} = require('./price-utils')
  */
 
 /**
+ * @typedef {Object} FetchOptions
+ * @property {number} [batchSize] - force fetch data from provider
+ * @property {number} [batchDelay] - delay between batches
+ * @property {string[]} [sources] - list of sources to fetch data from
+ */
+
+const defaultFetchOptions = { batchSize: 10, batchDelay: 2000, sources: ['binance', 'bybit', 'coinbase', 'kraken', 'okx'] } //ignore gate for now
+
+/**
  * @typedef {Object} PriceData
  * @property {BigInt} price
  * @property {string[]} sources
  */
 
-const providers = [
+const supportedProviders = [
     new BinancePriceProvider(),
     new BybitPriceProvider(),
     new OkxPriceProvider(),
     new KrakenPriceProvider(),
-    //new GatePriceProvider(),
+    new GatePriceProvider(),
     new CoinbasePriceProvider()
 ]
 
@@ -37,11 +47,8 @@ function getPairs(assets, baseAsset) {
     const pairs = []
     const base = getAsset(baseAsset)
     assets = assets.map(asset => getAsset(asset))
-    for (const asset of assets) {
-        if (asset.name === base.name)
-            continue
+    for (const asset of assets)
         pairs.push(new Pair(base, asset))
-    }
     return pairs
 }
 
@@ -52,23 +59,108 @@ function getPairs(assets, baseAsset) {
  * @param {number} timestamp - timestamp UNIX in seconds
  * @param {number} timeframe - timeframe in seconds
  * @param {number} decimals - number of decimals for the price
+ * @param {FetchOptions} [options] - fetch options
  * @returns {Promise<BigInt[]>}
  */
-async function getPrices(assets, baseAsset, timestamp, timeframe, decimals) {
-    const ohlcvs = await getOHLCVs(assets, baseAsset, timestamp, timeframe, decimals)
-    /**
-     * @type {{[key: string]: Price}}
-     */
-    const prices = []
-    for (const asset of assets) {
-        const ohlcv = ohlcvs[asset]
-        if (!ohlcv) {
-            prices.push(0n)
-            continue
-        }
-        prices.push(getMedianPrice(ohlcv))
+async function getPrices(assets, baseAsset, timestamp, timeframe, decimals, options = null) {
+    const ohlcvs = await getOHLCVs(assets, baseAsset, timestamp, timeframe, decimals, options)
+    const res = ohlcvs.map(ohlcv => getMedianPrice(ohlcv) || 0n)
+
+    return res
+}
+
+/**
+ * Splits pairs into batches
+ * @param {Pair[]} pairs - list of pairs
+ * @param {number} batchSize - batch size
+ * @returns {Pair[][]} - list of pairs batches
+ */
+function getPairsBatches(pairs, batchSize) {
+    if (batchSize <= 0)
+        return [pairs]
+    const pairsBatches = []
+    for (let i = 0; i < pairs.length; i += batchSize) {
+        pairsBatches.push(pairs.slice(i, i + batchSize))
     }
-    return prices
+    return pairsBatches
+}
+
+/**
+ * @param {string[]} sources
+ * @returns {PriceProviderBase[]}
+ */
+function getSupportedProviders(sources) {
+    return supportedProviders.filter(provider => sources.includes(provider.name))
+}
+
+
+/**
+ * @param {PriceProviderBase} provider
+ * @param {Pair} pair
+ * @param {number} timestamp
+ * @param {number} timeframe
+ * @param {number} decimals
+ * @returns {Promise<OHLCV>}
+ */
+async function fetchSingleOHLCV(provider, pair, timestamp, timeframe, decimals) {
+    try {
+        let tries = 2
+        while (tries > 0) {
+            const ohlcv = await provider.getOHLCV(pair, timestamp, timeframe, decimals)
+            if (!ohlcv) {
+                return
+            } else if (!ohlcv.completed) {
+                tries--
+                continue
+            }
+            return ohlcv
+        }
+    } catch (error) {
+        console.warn(`Error getting price for ${pair.name} from ${provider.name}: ${error.message}`)
+    }
+    return null
+}
+
+/**
+ * @param {PriceProviderBase} provider
+ * @param {Pair[][]} pairsBatches
+ * @param {number} timestamp
+ * @param {number} timeframe
+ * @param {number} decimals
+ * @param {number} batchDelay
+ * @returns {Promise<OHLCV[]>}
+ */
+async function fetchOHLCVs(provider, pairsBatches, timestamp, timeframe, decimals, batchDelay) {
+    const allOhlcv = []
+    try {
+        if (Date.now() - provider.marketsLoadedAt > 1000 * 60 * 60 * 6) { //reload markets if older than 6 hours
+            try {
+                await provider.loadMarkets()
+            } catch (error) {
+                console.warn(`Error loading markets for ${provider.name}: ${error.message}`)
+                return
+            }
+        }
+        for (const pairsBatch of pairsBatches) {
+            const batchStart = Date.now()
+            const ohlcvPromises = []
+            for (const pair of pairsBatch) {
+                const ohlcvPromise = fetchSingleOHLCV(provider, pair, timestamp, timeframe, decimals)
+                ohlcvPromises.push(ohlcvPromise)
+            }
+            allOhlcv.push(...(await Promise.all(ohlcvPromises)))
+            if (batchDelay > 0) { //delay between batches
+                const elapsed = Date.now() - batchStart
+                if (elapsed < batchDelay) {
+                    await new Promise(resolve => setTimeout(resolve, batchDelay - elapsed))
+                }
+            }
+        }
+    } catch (error) {
+        console.error(`Error fetching data from ${provider.name}: ${error.message}`)
+        return null
+    }
+    return allOhlcv
 }
 
 /**
@@ -78,9 +170,12 @@ async function getPrices(assets, baseAsset, timestamp, timeframe, decimals) {
  * @param {number} timestamp - timestamp UNIX in seconds
  * @param {number} timeframe - timeframe in seconds
  * @param {number} decimals - number of decimals for the price
- * @returns {Promise<{[key: string]: OHLCV[]}>}
+ * @param {FetchOptions} options - fetch options
+ * @returns {Promise<OHLCV[][]>}
  */
-async function getOHLCVs(assets, baseAsset, timestamp, timeframe, decimals) {
+async function getOHLCVs(assets, baseAsset, timestamp, timeframe, decimals, options = null) {
+    if (assets.length === 0)
+        return []
     const pairs = getPairs(assets, baseAsset)
     if (timeframe % 60 !== 0) {
         throw new Error('Timeframe should be whole minutes')
@@ -89,64 +184,36 @@ async function getOHLCVs(assets, baseAsset, timestamp, timeframe, decimals) {
     if (timeframe > 60) {
         throw new Error('Timeframe should be less than or equal to 60 minutes')
     }
-    const ohlcvs = {}
+
+    const { batchSize, sources, batchDelay } = { ...defaultFetchOptions, ...options }
+
     const fetchPromises = []
-    //split pairs into batches of 10
-    const pairsBatches = []
-    for (let i = 0; i < pairs.length; i += 10) {
-        pairsBatches.push(pairs.slice(i, i + 10))
-    }
+    const pairsBatches = getPairsBatches(pairs, batchSize)
+    const providers = getSupportedProviders(sources)
     for (const provider of providers) {
-        const fetchOHLCVs = async () => {
-            try {
-                if (Date.now() - provider.marketsLoadedAt > 1000 * 60 * 60 * 6) { //reload markets if older than 6 hours
-                    try {
-                        await provider.loadMarkets()
-                    } catch (error) {
-                        console.warn(`Error loading markets for ${provider.name}: ${error.message}`)
-                        return
-                    }
-                }
-                for (const pairsBatch of pairsBatches) {
-                    const ohlcvPromises = []
-                    for (const pair of pairsBatch) {
-                        const getOHLCV = async () => {
-                            try {
-                                let tries = 2
-                                while (tries > 0) {
-                                    const ohlcv = await provider.getOHLCV(pair, timestamp, timeframe, decimals)
-                                    if (!ohlcv) {
-                                        return
-                                    } else if (!ohlcv.completed) {
-                                        tries--
-                                        continue
-                                    }
-                                    ohlcvs[pair.quote.name] = ohlcvs[pair.quote.name] || []
-                                    ohlcvs[pair.quote.name].push(ohlcv)
-                                    return
-                                }
-                            } catch (error) {
-                                console.warn(`Error getting price for ${pair.name} from ${provider.name}: ${error.message}`)
-                            }
-                        }
-                        //add promise to fetch OHLCV
-                        ohlcvPromises.push(getOHLCV())
-                    }
-                    await Promise.all(ohlcvPromises)
-                }
-            } catch (error) {
-                console.error(`Error fetching data from ${provider.name}: ${error.message}`)
-            }
-        }
-        fetchPromises.push(fetchOHLCVs())
+        const providerOhlcvsPromise = fetchOHLCVs(provider, pairsBatches, timestamp, timeframe, decimals, batchDelay)
+        fetchPromises.push(providerOhlcvsPromise)
     }
-    await Promise.all(fetchPromises)
+    const providersResult = await Promise.all(fetchPromises)
+    const ohlcvs = []
+    for (let i = 0; i < assets.length; i++) {
+        ohlcvs[i] = providersResult
+            .map(ohlcvs => ohlcvs[i])
+            .filter(ohlcv => ohlcv)
+            .sort((a, b) => a.source.localeCompare(b.source))
+    }
+
+    console.debug({
+        timestamp,
+        baseAsset,
+        result: ohlcvs.map(assetOhlcvs => assetOhlcvs.map(ohlcv => ({ source: ohlcv.source, price: ohlcv.price(), completed: ohlcv.completed, asset: ohlcv.quote })))
+    })
 
     return ohlcvs
 }
 
 function getProvider(name) {
-    return providers.find(provider => provider.name === name)
+    return supportedProviders.find(provider => provider.name === name)
 }
 
-module.exports = {getPrices, getOHLCVs, getProvider}
+module.exports = { getPrices, getOHLCVs, getProvider }

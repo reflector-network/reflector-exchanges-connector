@@ -14,6 +14,8 @@ for (const asset of assetName) {
  * @returns {Asset}
  */
 function getAsset(name) {
+    if (!name)
+        throw new Error('Asset name is required')
     if (!assets[name])
         assets[name] = new Asset(name, [name])
     return assets[name]

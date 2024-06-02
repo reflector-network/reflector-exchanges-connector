@@ -3,7 +3,7 @@ const {getInversedPrice, getBigIntPrice, getVWAP} = require('../price-utils')
 class OHLCV {
     /**
      *
-     * @param {{open: any, high: any, low: any, close: any, volume: number, quoteVolume: number, inversed: boolean, source: string, completed: boolean}} raw - raw data
+     * @param {{open: any, high: any, low: any, close: any, volume: number, quoteVolume: number, inversed: boolean, source: string, quote: string, base: string, completed: boolean}} raw - raw data
      */
     constructor(raw) {
         //normalize data
@@ -16,7 +16,7 @@ class OHLCV {
             quoteVolume: Number(raw.quoteVolume),
             volume: Number(raw.volume)
         }
-        const {open, high, low, close, volume, quoteVolume, inversed, source, decimals, completed} = raw
+        const {open, high, low, close, volume, quoteVolume, inversed, source, decimals, completed, quote, base} = raw
         this.open = inversed ? getInversedPrice(open, decimals) : open
         this.high = inversed ? getInversedPrice(low, decimals) : high
         this.low = inversed ? getInversedPrice(high, decimals) : low
@@ -26,6 +26,8 @@ class OHLCV {
         this.decimals = decimals
         this.source = source
         this.completed = completed
+        this.quote = quote
+        this.base = base
     }
 
     /**
@@ -68,6 +70,21 @@ class OHLCV {
      * @readonly
      */
     decimals
+    /**
+     * @type {boolean}
+     * @readonly
+     */
+    completed
+    /**
+     * @type {string}
+     * @readonly
+     */
+    quote
+    /**
+     * @type {string}
+     * @readonly
+     */
+    base
 
     /**
      * Returns VWAP price for the OHLCV
@@ -88,7 +105,10 @@ class OHLCV {
             volume: this.volume,
             quoteVolume: this.quoteVolume,
             source: this.source,
-            decimals: this.decimals
+            decimals: this.decimals,
+            completed: this.completed,
+            quote: this.quote,
+            base: this.base
         })
     }
 }

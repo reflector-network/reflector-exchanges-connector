@@ -39,6 +39,8 @@ class CoinbasePriceProvider extends PriceProviderBase {
             inversed: symbolInfo.inversed,
             source: this.name,
             decimals,
+            base: pair.base.name,
+            quote: pair.quote.name,
             completed: true //there is indicator to determine if the candle is closed
         }
         ohlcv.quoteVolume = Number(ohlcv.volume) * ((ohlcv.close + ohlcv.open + ohlcv.high + ohlcv.low) / 4)

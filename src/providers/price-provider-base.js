@@ -104,6 +104,8 @@ class PriceProviderBase {
                 quoteVolume: 0,
                 inversed: false,
                 source: this.name,
+                base: pair.base.name,
+                quote: pair.quote.name,
                 decimals
             })
         }
@@ -127,7 +129,7 @@ class PriceProviderBase {
      * @returns {{symbol: string, inversed: boolean} | null}
      */
     getSymbolInfo(pair) {
-        if (this.cachedSymbols[pair.name])
+        if (this.cachedSymbols[pair.name] !== undefined)
             return this.cachedSymbols[pair.name]
 
         return this.cachedSymbols[pair.name] = this.__getSymbol(pair.base, pair.quote) || this.__getSymbol(pair.quote, pair.base, true)
@@ -166,13 +168,17 @@ class PriceProviderBase {
      * @returns {Promise<any>}
      * @protected
      */
-    __makeRequest(url, options = {}) {
+    async __makeRequest(url, options = {}) {
         const requestOptions = {
             ...defaultOptions,
             ...options,
             url
         }
-        return axios.request(requestOptions)
+        const start = Date.now()
+        const response = await axios.request(requestOptions)
+        const time = Date.now() - start
+        console.debug(`Request to ${url} took ${time}ms`)
+        return response
     }
 
     /**
