@@ -29,7 +29,6 @@ class OkxPriceProvider extends PriceProviderBase {
         const after = timestamp + timeframeInMs
         //https://www.okx.com/docs-v5/en/#order-book-trading-market-data-get-candlesticks
         const klinesUrl = `${baseApiUrl}/market/candles?instId=${symbolInfo.symbol}&bar=${timeframe}m&before=${before}&after=${after}&limit=1`
-        console.log(klinesUrl)
         const response = await this.__makeRequest(klinesUrl)
         const klines = response.data.data
         if (klines.length === 0)
