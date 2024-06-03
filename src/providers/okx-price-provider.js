@@ -47,7 +47,7 @@ class OkxPriceProvider extends PriceProviderBase {
             decimals,
             base: pair.base.name,
             quote: pair.quote.name,
-            completed: !!kline[8]
+            completed: kline[8] === '1'
         })
     }
 
