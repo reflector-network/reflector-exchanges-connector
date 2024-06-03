@@ -23,7 +23,7 @@ class CoinbasePriceProvider extends PriceProviderBase {
         const symbolInfo = this.getSymbolInfo(pair)
         if (!symbolInfo)
             return null
-        const klinesUrl = `${baseApiUrl}/products/${symbolInfo.symbol}/candles?granularity=${timeframe}m&start=${timestamp * 1000}&end=${timestamp}`
+        const klinesUrl = `${baseApiUrl}/products/${symbolInfo.symbol}/candles?granularity=${timeframe}m&start=${timestamp}&end=${timestamp}`
         const response = await this.__makeRequest(klinesUrl)
         const klines = response.data
         if (klines.length === 0)
