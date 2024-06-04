@@ -10,22 +10,22 @@ class KrakenPriceProvider extends PriceProviderBase {
 
     name = 'kraken'
 
-    async __loadMarkets() {
+    async __loadMarkets(timeout) {
         const marketsUrl = `${baseApiUrl}/public/AssetPairs`
-        const response = await this.__makeRequest(marketsUrl)
+        const response = await this.__makeRequest(marketsUrl, {timeout})
         const markets = response.data.result
         return Object.keys(markets)
             .filter(market => markets[market].status.toUpperCase() === 'ONLINE')
             .map(market => markets[market].altname)
     }
 
-    async __getOHLCV(pair, timestamp, timeframe, decimals) {
+    async __getOHLCV(pair, timestamp, timeframe, decimals, timeout) {
         const symbolInfo = this.getSymbolInfo(pair)
         if (!symbolInfo)
             return null
         //since is exclusive, so we need to subtract a second to get the kline that matches the timestamp
         const klinesUrl = `${baseApiUrl}/public/OHLC?pair=${symbolInfo.symbol}&interval=${timeframe}&since=${timestamp - 1}`
-        const response = await this.__makeRequest(klinesUrl)
+        const response = await this.__makeRequest(klinesUrl, {timeout})
 
         //Kraken API returns an object with the last and the pair name. Pair name is not always the same as the symbol
         const klines = response.data.result[Object.keys(response.data.result).filter(k => k !== 'last')[0]]

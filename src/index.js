@@ -19,6 +19,7 @@ const { getMedianPrice } = require('./price-utils')
  * @property {number} [batchSize] - force fetch data from provider
  * @property {number} [batchDelay] - delay between batches
  * @property {string[]} [sources] - list of sources to fetch data from
+ * @property {number} [timeout] - request timeout
  */
 
 const defaultFetchOptions = { batchSize: 10, batchDelay: 2000, sources: ['binance', 'bybit', 'coinbase', 'kraken', 'okx'] } //ignore gate for now
@@ -100,23 +101,29 @@ function getSupportedProviders(sources) {
  * @param {number} timestamp
  * @param {number} timeframe
  * @param {number} decimals
+ * @param {number} timeout
  * @returns {Promise<OHLCV>}
  */
-async function fetchSingleOHLCV(provider, pair, timestamp, timeframe, decimals) {
-    try {
-        let tries = 2
-        while (tries > 0) {
-            const ohlcv = await provider.getOHLCV(pair, timestamp, timeframe, decimals)
+async function fetchSingleOHLCV(provider, pair, timestamp, timeframe, decimals, timeout) {
+    let tries = 3
+    while (tries > 0) {
+        try {
+            const ohlcv = await provider.getOHLCV(pair, timestamp, timeframe, decimals, timeout)
             if (!ohlcv) {
-                return
+                console.debug(`No data for ${pair.name} from ${provider.name}`)
+                break
             } else if (!ohlcv.completed) {
-                tries--
+                console.debug(`Incomplete data for ${pair.name} from ${provider.name}, ${tries > 0 ? 'retrying...' : 'skipping...'}`)
                 continue
             }
             return ohlcv
+        } catch (error) {
+            console.warn(`Error getting price for ${pair.name} from ${provider.name}: ${error.message}`)
+            if (error.name != 'AxiosError' && !error.message.includes('timeout'))
+                break
+        } finally {
+            tries--
         }
-    } catch (error) {
-        console.warn(`Error getting price for ${pair.name} from ${provider.name}: ${error.message}`)
     }
     return null
 }
@@ -130,12 +137,12 @@ async function fetchSingleOHLCV(provider, pair, timestamp, timeframe, decimals) 
  * @param {number} batchDelay
  * @returns {Promise<OHLCV[]>}
  */
-async function fetchOHLCVs(provider, pairsBatches, timestamp, timeframe, decimals, batchDelay) {
+async function fetchOHLCVs(provider, pairsBatches, timestamp, timeframe, decimals, batchDelay, timeout) {
     const allOhlcv = []
     try {
         if (Date.now() - provider.marketsLoadedAt > 1000 * 60 * 60 * 6) { //reload markets if older than 6 hours
             try {
-                await provider.loadMarkets()
+                await provider.loadMarkets(timeout)
             } catch (error) {
                 console.warn(`Error loading markets for ${provider.name}: ${error.message}`)
                 return
@@ -145,7 +152,7 @@ async function fetchOHLCVs(provider, pairsBatches, timestamp, timeframe, decimal
             const batchStart = Date.now()
             const ohlcvPromises = []
             for (const pair of pairsBatch) {
-                const ohlcvPromise = fetchSingleOHLCV(provider, pair, timestamp, timeframe, decimals)
+                const ohlcvPromise = fetchSingleOHLCV(provider, pair, timestamp, timeframe, decimals, timeout)
                 ohlcvPromises.push(ohlcvPromise)
             }
             allOhlcv.push(...(await Promise.all(ohlcvPromises)))
@@ -185,13 +192,13 @@ async function getOHLCVs(assets, baseAsset, timestamp, timeframe, decimals, opti
         throw new Error('Timeframe should be less than or equal to 60 minutes')
     }
 
-    const { batchSize, sources, batchDelay } = { ...defaultFetchOptions, ...options }
+    const { batchSize, sources, batchDelay, timeout } = { ...defaultFetchOptions, ...options }
 
     const fetchPromises = []
     const pairsBatches = getPairsBatches(pairs, batchSize)
     const providers = getSupportedProviders(sources)
     for (const provider of providers) {
-        const providerOhlcvsPromise = fetchOHLCVs(provider, pairsBatches, timestamp, timeframe, decimals, batchDelay)
+        const providerOhlcvsPromise = fetchOHLCVs(provider, pairsBatches, timestamp, timeframe, decimals, batchDelay, timeout)
         fetchPromises.push(providerOhlcvsPromise)
     }
     const providersResult = await Promise.all(fetchPromises)

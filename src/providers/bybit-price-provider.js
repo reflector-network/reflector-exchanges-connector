@@ -10,22 +10,22 @@ class BybitPriceProvider extends PriceProviderBase {
 
     name = 'bybit'
 
-    async __loadMarkets() {
+    async __loadMarkets(timeout) {
         const marketsUrl = `${baseApiUrl}/market/instruments-info?category=spot`
-        const response = await this.__makeRequest(marketsUrl)
+        const response = await this.__makeRequest(marketsUrl, {timeout})
         const markets = response.data.result.list
         return markets
             .filter(market => market.status.toUpperCase() === 'TRADING')
             .map(market => market.symbol)
     }
 
-    async __getOHLCV(pair, timestamp, timeframe, decimals) {
+    async __getOHLCV(pair, timestamp, timeframe, decimals, timeout) {
         const symbolInfo = this.getSymbolInfo(pair)
         if (!symbolInfo)
             return null
         timestamp = timestamp * 1000
         const klinesUrl = `${baseApiUrl}/market/kline?category=spot&symbol=${symbolInfo.symbol}&interval=${timeframe}&start=${timestamp}&limit=1`
-        const response = await this.__makeRequest(klinesUrl)
+        const response = await this.__makeRequest(klinesUrl, {timeout})
         const klines = response.data.result.list
         if (klines.length === 0)
             return null

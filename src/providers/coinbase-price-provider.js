@@ -10,21 +10,21 @@ class CoinbasePriceProvider extends PriceProviderBase {
 
     name = 'coinbase'
 
-    async __loadMarkets() {
+    async __loadMarkets(timeout) {
         const marketsUrl = `${baseApiUrl}/products`
-        const response = await this.__makeRequest(marketsUrl)
+        const response = await this.__makeRequest(marketsUrl, {timeout})
         const markets = response.data
         return markets
             .filter(market => market.status.toUpperCase() === 'ONLINE')
             .map(market => market.id)
     }
 
-    async __getOHLCV(pair, timestamp, timeframe, decimals) {
+    async __getOHLCV(pair, timestamp, timeframe, decimals, timeout) {
         const symbolInfo = this.getSymbolInfo(pair)
         if (!symbolInfo)
             return null
         const klinesUrl = `${baseApiUrl}/products/${symbolInfo.symbol}/candles?granularity=${timeframe}m&start=${timestamp}&end=${timestamp}`
-        const response = await this.__makeRequest(klinesUrl)
+        const response = await this.__makeRequest(klinesUrl, {timeout})
         const klines = response.data
         if (klines.length === 0)
             return null

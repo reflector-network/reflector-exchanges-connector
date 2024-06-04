@@ -10,10 +10,6 @@ axios.defaults.httpAgent = httpAgent
 const httpsAgent = new https.Agent({keepAlive: true, maxSockets: 50, noDelay: true})
 axios.defaults.httpsAgent = httpsAgent
 
-const defaultOptions = {
-    timeout: 3000
-}
-
 class PriceProviderBase {
     constructor(apiKey, secret) {
         if (this.constructor === PriceProviderBase)
@@ -51,10 +47,11 @@ class PriceProviderBase {
     cachedSymbols
 
     /**
+     * @param {number} [timeout] - request timeout in milliseconds. Default is 3000ms
      * @returns {Promise<void>}
      */
-    async loadMarkets() {
-        const markets = await this.__loadMarkets()
+    async loadMarkets(timeout = 3000) {
+        const markets = await this.__loadMarkets(timeout)
         this.cachedSymbols = {} //clear cache
         this.marketsLoadedAt = Date.now() //set timestamp
         this.markets = markets //set markets
@@ -65,7 +62,7 @@ class PriceProviderBase {
      * @abstract
      * @protected
      */
-    __loadMarkets() {
+    __loadMarkets(timeout) {
         throw new Error('Not implemented')
     }
 
@@ -75,10 +72,11 @@ class PriceProviderBase {
      * @param {number} timestamp - timestamp in milliseconds
      * @param {number} timeframe - timeframe in minutes
      * @param {number} decimals - number of decimals for the price
+     * @param {number} [timeout] - request timeout in milliseconds. Default is 3000ms
      * @returns {Promise<number>}
      */
-    async getPrice(pair, timestamp, timeframe, decimals) {
-        const ohlcv = await this.getOHLCV(pair, timestamp, timeframe, decimals)
+    async getPrice(pair, timestamp, timeframe, decimals, timeout = 3000) {
+        const ohlcv = await this.getOHLCV(pair, timestamp, timeframe, decimals, timeout)
         if (!ohlcv)
             return null
         return ohlcv.price()
@@ -90,9 +88,10 @@ class PriceProviderBase {
      * @param {number} timestamp - timestamp in seconds
      * @param {number} timeframe - timeframe in minutes
      * @param {number} decimals - number of decimals for the price
+     * @param {number} [timeout] - request timeout in milliseconds. Default is 3000ms
      * @returns {Promise<OHLCV|null>}
      */
-    getOHLCV(pair, timestamp, timeframe, decimals) {
+    getOHLCV(pair, timestamp, timeframe, decimals, timeout = 3000) {
         if (pair.base.name === pair.quote.name) {
             const price = getBigIntPrice(1, decimals)
             return new OHLCV({
@@ -109,7 +108,7 @@ class PriceProviderBase {
                 decimals
             })
         }
-        return this.__getOHLCV(pair, timestamp, timeframe, decimals)
+        return this.__getOHLCV(pair, timestamp, timeframe, decimals, timeout)
     }
 
     /**
@@ -117,10 +116,11 @@ class PriceProviderBase {
      * @param {number} timestamp
      * @param {number} timeframe
      * @param {number} decimals
+     * @param {number} timeout
      * @abstract
      * @protected
      */
-    __getOHLCV(pair, timestamp, timeframe, decimals) {
+    __getOHLCV(pair, timestamp, timeframe, decimals, timeout) {
         throw new Error('Not implemented')
     }
 
@@ -170,7 +170,6 @@ class PriceProviderBase {
      */
     async __makeRequest(url, options = {}) {
         const requestOptions = {
-            ...defaultOptions,
             ...options,
             url
         }

@@ -10,21 +10,21 @@ class GatePriceProvider extends PriceProviderBase {
 
     name = 'gate'
 
-    async __loadMarkets() {
+    async __loadMarkets(timeout) {
         const marketsUrl = `${baseUrl}/spot/currency_pairs`
-        const response = await this.__makeRequest(marketsUrl)
+        const response = await this.__makeRequest(marketsUrl, {timeout})
         const markets = response.data
         return markets
             .filter(market => market.trade_status.toUpperCase() === 'TRADABLE')
             .map(market => market.id)
     }
 
-    async __getOHLCV(pair, timestamp, timeframe, decimals) {
+    async __getOHLCV(pair, timestamp, timeframe, decimals, timeout) {
         const symbolInfo = this.getSymbolInfo(pair)
         if (!symbolInfo)
             return null
         const klinesUrl = `${baseUrl}/spot/candlesticks?currency_pair=${symbolInfo.symbol}&interval=${timeframe}m&from=${timestamp}&limit=1`
-        const response = await this.__makeRequest(klinesUrl)
+        const response = await this.__makeRequest(klinesUrl, {timeout})
         const klines = response.data
         if (klines.length === 0)
             return null
