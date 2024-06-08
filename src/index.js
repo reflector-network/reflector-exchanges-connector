@@ -8,6 +8,7 @@ const GatePriceProvider = require('./providers/gate-price-provider')
 const Pair = require('./models/pair')
 const { getAsset } = require('./assets-cache')
 const { getMedianPrice } = require('./price-utils')
+const PriceProviderBase = require('./providers/price-provider-base')
 
 /**
  * @typedef {import('./models/asset')} Asset
@@ -106,6 +107,7 @@ function getSupportedProviders(sources) {
  */
 async function fetchSingleOHLCV(provider, pair, timestamp, timeframe, decimals, timeout) {
     let tries = 3
+    const errors = []
     while (tries > 0) {
         try {
             const ohlcv = await provider.getOHLCV(pair, timestamp, timeframe, decimals, timeout)
@@ -113,19 +115,42 @@ async function fetchSingleOHLCV(provider, pair, timestamp, timeframe, decimals, 
                 console.debug(`No data for ${pair.name} from ${provider.name}`)
                 break
             } else if (!ohlcv.completed) {
-                console.debug(`Incomplete data for ${pair.name} from ${provider.name}, ${tries > 0 ? 'retrying...' : 'skipping...'}`)
+                console.debug(`Incomplete data for ${pair.name} from ${provider.name}. ${tries > 0 ? 'Retrying...' : 'Skipping...'}`)
                 continue
             }
             return ohlcv
         } catch (error) {
-            console.warn(`Error getting price for ${pair.name} from ${provider.name}: ${error.message}`)
-            if (error.name != 'AxiosError' && !error.message.includes('timeout'))
-                break
+            errors.push(error.message)
         } finally {
             tries--
         }
     }
+    if (errors.length > 0)
+        console.warn(`Failed to get data for ${pair.name} from ${provider.name}: ${errors.join(', ')}`)
     return null
+}
+
+/**
+ * @param {PriceProviderBase} provider
+ * @param {number} timeout
+ * @returns {Promise<void>}
+ */
+async function ensureMarketLoaded(provider, timeout) {
+    if (Date.now() - provider.marketsLoadedAt < 1000 * 60 * 60 * 6)
+        return
+    let tries = 3
+    const errors = []
+    while (tries > 0) {
+        try {
+            await provider.loadMarkets(timeout)
+            return
+        } catch (error) {
+            errors.push(error.message)
+        } finally {
+            tries--
+        }
+    }
+    console.warn(`Failed to load markets for ${provider.name}: ${errors.join(', ')}`)
 }
 
 /**
@@ -140,14 +165,7 @@ async function fetchSingleOHLCV(provider, pair, timestamp, timeframe, decimals, 
 async function fetchOHLCVs(provider, pairsBatches, timestamp, timeframe, decimals, batchDelay, timeout) {
     const allOhlcv = []
     try {
-        if (Date.now() - provider.marketsLoadedAt > 1000 * 60 * 60 * 6) { //reload markets if older than 6 hours
-            try {
-                await provider.loadMarkets(timeout)
-            } catch (error) {
-                console.warn(`Error loading markets for ${provider.name}: ${error.message}`)
-                return
-            }
-        }
+        await ensureMarketLoaded(provider, timeout)
         for (const pairsBatch of pairsBatches) {
             const batchStart = Date.now()
             const ohlcvPromises = []
@@ -205,6 +223,7 @@ async function getOHLCVs(assets, baseAsset, timestamp, timeframe, decimals, opti
     const ohlcvs = []
     for (let i = 0; i < assets.length; i++) {
         ohlcvs[i] = providersResult
+            .filter(result => result)
             .map(ohlcvs => ohlcvs[i])
             .filter(ohlcv => ohlcv)
             .sort((a, b) => a.source.localeCompare(b.source))
@@ -223,4 +242,8 @@ function getProvider(name) {
     return supportedProviders.find(provider => provider.name === name)
 }
 
-module.exports = { getPrices, getOHLCVs, getProvider }
+function setProxy(proxyOptions, useCurrentProvider = false) {
+    PriceProviderBase.setProxy(proxyOptions, useCurrentProvider)
+}
+
+module.exports = { getPrices, getOHLCVs, getProvider, setProxy }

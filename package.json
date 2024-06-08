@@ -1,6 +1,6 @@
 {
   "name": "@reflector/exchanges-connector",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "CEX & DEX data source for Reflector backend",
   "main": "src/index.js",
@@ -11,11 +11,12 @@
   "author": "team@stellar.expert",
   "license": "MIT",
   "dependencies": {
-    "axios": "^1.6.8"
+    "axios": "^1.6.8",
+    "socks-proxy-agent": "^8.0.3"
   },
   "devDependencies": {
     "@stellar-expert/eslint-config-js": "github:stellar-expert/eslint-config-js",
-    "jest": "^29.7.0",
-    "csv-writer": "^1.6.0"
+    "csv-writer": "^1.6.0",
+    "jest": "^29.7.0"
   }
 }

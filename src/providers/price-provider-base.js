@@ -1,14 +1,40 @@
+/*eslint-disable class-methods-use-this */
 const https = require('https')
 const http = require('http')
 const {default: axios} = require('axios')
+const {SocksProxyAgent} = require('socks-proxy-agent')
 const OHLCV = require('../models/ohlcv')
 const {getBigIntPrice} = require('../price-utils')
 
-const httpAgent = new http.Agent({keepAlive: true, maxSockets: 50, noDelay: true})
+const defaultAgentOptions = {keepAlive: true, maxSockets: 50, noDelay: true}
+
+const requestedUrls = new Map()
+
+const httpAgent = new http.Agent(defaultAgentOptions)
 axios.defaults.httpAgent = httpAgent
 
-const httpsAgent = new https.Agent({keepAlive: true, maxSockets: 50, noDelay: true})
+const httpsAgent = new https.Agent(defaultAgentOptions)
 axios.defaults.httpsAgent = httpsAgent
+
+function createProxyAgent(proxyConnectionString) {
+    if (!proxyConnectionString)
+        return null
+    if (!proxyConnectionString || !proxyConnectionString.startsWith('socks'))
+        throw new Error(`Invalid proxy uri ${proxyConnectionString}`)
+    const socksAgent = new SocksProxyAgent(proxyConnectionString, defaultAgentOptions)
+    return socksAgent
+}
+
+function getRotatedIndex(index, length) {
+    return (index + 1) % length
+}
+
+function getRandomIndex(length, currentIndex) {
+    let newIndex = Math.floor(Math.random() * length)
+    if (newIndex === currentIndex)
+        newIndex = getRotatedIndex(newIndex, length)
+    return newIndex
+}
 
 class PriceProviderBase {
     constructor(apiKey, secret) {
@@ -18,6 +44,67 @@ class PriceProviderBase {
         this.secret = secret
         this.markets = []
         this.cachedSymbols = {}
+    }
+
+    static setProxy(proxyConnectionSting, useCurrentProvider) {
+        if (!proxyConnectionSting) {
+            PriceProviderBase.proxyAgents = null
+            return
+        }
+
+        const proxies = []
+        if (!Array.isArray(proxyConnectionSting))
+            proxyConnectionSting = [proxyConnectionSting]
+
+        for (const p of proxyConnectionSting) {
+            try {
+                proxies.push(createProxyAgent(p))
+            } catch (e) {
+                console.error(e)
+            }
+        }
+        if (proxies.length === 0) {
+            PriceProviderBase.proxyAgents = null
+            return
+        }
+
+        if (useCurrentProvider) //add current server
+            proxies.unshift(undefined)
+
+        PriceProviderBase.proxyAgents = proxies
+    }
+
+    static getProxyAgent(url) {
+        if (!PriceProviderBase.proxyAgents) //no proxies
+            return undefined
+
+        if (PriceProviderBase.proxyAgents.length === 1) //single proxy, no need to rotate
+            return PriceProviderBase.proxyAgents[0]
+
+        //try to get proxy index for url
+        const index = getRandomIndex(PriceProviderBase.proxyAgents.length, requestedUrls.get(url))
+
+        //set proxy index for url
+        PriceProviderBase.setRequestedUrl(url, index)
+        return PriceProviderBase.proxyAgents[index]
+    }
+
+    static setRequestedUrl(url, proxyIndex) {
+        //if url is already errored, update proxyIndex
+        if (requestedUrls.has(url)) {
+            requestedUrls.set(url, proxyIndex)
+            return
+        }
+        //add url to requestedUrls
+        requestedUrls.set(url, proxyIndex)
+        if (requestedUrls.size > 1000) { //remove first key if size is more than 1000
+            const firstKey = requestedUrls.keys().next().value
+            PriceProviderBase.deleteRequestedUrl(firstKey)
+        }
+    }
+
+    static deleteRequestedUrl(url) {
+        requestedUrls.delete(url)
     }
 
     /**
@@ -173,10 +260,12 @@ class PriceProviderBase {
             ...options,
             url
         }
+        requestOptions.httpAgent = requestOptions.httpsAgent = PriceProviderBase.getProxyAgent(url)
         const start = Date.now()
         const response = await axios.request(requestOptions)
         const time = Date.now() - start
-        console.debug(`Request to ${url} took ${time}ms`)
+        PriceProviderBase.deleteRequestedUrl(url)
+        console.debug(`Request to ${url} took ${time}ms. Proxy: ${requestOptions.httpAgent ? `${requestOptions.httpAgent.proxy.host}:${requestOptions.httpAgent.proxy.port}` : 'no'}`)
         return response
     }
 
