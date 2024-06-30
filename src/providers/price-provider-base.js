@@ -249,7 +249,7 @@ class PriceProviderBase {
                 console.debug(`Request to ${url} took ${time}ms. Proxy: ${requestOptions.httpAgent ? `${requestOptions.httpAgent.proxy.host}:${requestOptions.httpAgent.proxy.port}` : 'no'}`)
             return response
         } catch (err) {
-            console.error({err}, `Request to ${url} failed: ${err.message}. Proxy: ${requestOptions.httpAgent ? `${requestOptions.httpAgent.proxy.host}:${requestOptions.httpAgent.proxy.port}` : 'no'}`)
+            console.error(`Request to ${url} failed: ${err.message}. Proxy: ${requestOptions.httpAgent ? `${requestOptions.httpAgent.proxy.host}:${requestOptions.httpAgent.proxy.port}` : 'no'}`)
             return null
         }
     }
