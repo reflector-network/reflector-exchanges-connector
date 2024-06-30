@@ -1,4 +1,4 @@
-const OHLCV = require('../models/ohlcv')
+const TradeData = require('../models/trade-data')
 const PriceProviderBase = require('./price-provider-base')
 
 const baseApiUrl = 'https://api.exchange.coinbase.com'
@@ -19,32 +19,48 @@ class CoinbasePriceProvider extends PriceProviderBase {
             .map(market => market.id)
     }
 
-    async __getOHLCV(pair, timestamp, timeframe, decimals, timeout) {
+    async __getTradeData(pair, timestamp, timeframe, count, timeout) {
         const symbolInfo = this.getSymbolInfo(pair)
         if (!symbolInfo)
             return null
-        const klinesUrl = `${baseApiUrl}/products/${symbolInfo.symbol}/candles?granularity=${timeframe}m&start=${timestamp}&end=${timestamp}`
+
+        const timeframeSeconds = timeframe * 60
+        const end = timestamp + ((count - 1) * timeframeSeconds) //end is inclusive, so we need to subtract 1
+        const klinesUrl = `${baseApiUrl}/products/${symbolInfo.symbol}/candles?granularity=${timeframe}m&start=${timestamp}&end=${end}`
         const response = await this.__makeRequest(klinesUrl, {timeout})
         const klines = response.data
         if (klines.length === 0)
             return null
-        const kline = klines[0]
-        this.validateTimestamp(timestamp, kline[0])
-        const ohlcv = {
-            open: kline[3],
-            high: kline[2],
-            low: kline[1],
-            close: kline[4],
-            volume: kline[5],
-            inversed: symbolInfo.inversed,
-            source: this.name,
-            decimals,
-            base: pair.base.name,
-            quote: pair.quote.name,
-            completed: true //there is indicator to determine if the candle is closed
+        const tradesData = []
+        const timestamps = []
+        let currentTimestamp = timestamp
+        for (let i = klines.length - 1; i >= 0; i--) {
+            const kline = klines[i]
+            while (kline[0] !== currentTimestamp) { //if not trades happened, the timestamp will be empty
+                tradesData.push(new TradeData({
+                    ts: currentTimestamp,
+                    volume: 0,
+                    quoteVolume: 0,
+                    inversed: symbolInfo.inversed,
+                    source: this.name,
+                    completed: true
+                }))
+                timestamps.push(currentTimestamp)
+                currentTimestamp += timeframeSeconds
+            }
+            tradesData.push(new TradeData({
+                ts: kline[0],
+                volume: kline[5],
+                quoteVolume: kline[5] * ((kline[4] + kline[3] + kline[2] + kline[1]) / 4), //volume * average price
+                inversed: symbolInfo.inversed,
+                source: this.name,
+                completed: true //there is no indicator to determine if the candle is closed
+            }))
+            currentTimestamp += timeframeSeconds
+            timestamps.push(kline[0])
         }
-        ohlcv.quoteVolume = Number(ohlcv.volume) * ((ohlcv.close + ohlcv.open + ohlcv.high + ohlcv.low) / 4)
-        return new OHLCV(ohlcv)
+        this.validateTimestamps(timestamp, timestamps, timeframeSeconds)
+        return tradesData
     }
 
     __formatSymbol(base, quote) {

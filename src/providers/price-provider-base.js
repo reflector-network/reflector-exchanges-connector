@@ -3,8 +3,7 @@ const https = require('https')
 const http = require('http')
 const {default: axios} = require('axios')
 const {SocksProxyAgent} = require('socks-proxy-agent')
-const OHLCV = require('../models/ohlcv')
-const {getBigIntPrice} = require('../price-utils')
+const TradeData = require('../models/trade-data')
 
 const defaultAgentOptions = {keepAlive: true, maxSockets: 50, noDelay: true}
 
@@ -153,61 +152,41 @@ class PriceProviderBase {
         throw new Error('Not implemented')
     }
 
-
-    /**
-     * @param {Pair} pair - pair to get price for
-     * @param {number} timestamp - timestamp in milliseconds
-     * @param {number} timeframe - timeframe in minutes
-     * @param {number} decimals - number of decimals for the price
-     * @param {number} [timeout] - request timeout in milliseconds. Default is 3000ms
-     * @returns {Promise<number>}
-     */
-    async getPrice(pair, timestamp, timeframe, decimals, timeout = 3000) {
-        const ohlcv = await this.getOHLCV(pair, timestamp, timeframe, decimals, timeout)
-        if (!ohlcv)
-            return null
-        return ohlcv.price()
-    }
-
     /**
      *
-     * @param {Pair} pair - pair to get OHLCV for
+     * @param {Pair} pair - pair to get trades data for
      * @param {number} timestamp - timestamp in seconds
      * @param {number} timeframe - timeframe in minutes
-     * @param {number} decimals - number of decimals for the price
+     * @param {number} count - number of candles to get
      * @param {number} [timeout] - request timeout in milliseconds. Default is 3000ms
-     * @returns {Promise<OHLCV|null>}
+     * @returns {Promise<TradeData[]|null>} Returns TradeData array in ascending order or null if no data
      */
-    getOHLCV(pair, timestamp, timeframe, decimals, timeout = 3000) {
+    getTradesData(pair, timestamp, timeframe, count, timeout = 3000) {
+        if (count < 1)
+            throw new Error('Count should be greater than 0')
         if (pair.base.name === pair.quote.name) {
-            const price = getBigIntPrice(1, decimals)
-            return new OHLCV({
-                open: price,
-                high: price,
-                low: price,
-                close: price,
-                volume: 0,
-                quoteVolume: 0,
-                inversed: false,
-                source: this.name,
-                base: pair.base.name,
-                quote: pair.quote.name,
-                decimals
-            })
+            return Array(count).fill(
+                new TradeData({
+                    volume: 1,
+                    quoteVolume: 1,
+                    inversed: false,
+                    source: this.name
+                })
+            )
         }
-        return this.__getOHLCV(pair, timestamp, timeframe, decimals, timeout)
+        return this.__getTradeData(pair, timestamp, timeframe, count, timeout)
     }
 
     /**
      * @param {Pair} pair
      * @param {number} timestamp
      * @param {number} timeframe
-     * @param {number} decimals
+     * @param {number} count
      * @param {number} timeout
      * @abstract
      * @protected
      */
-    __getOHLCV(pair, timestamp, timeframe, decimals, timeout) {
+    __getTradeData(pair, timestamp, timeframe, count, timeout) {
         throw new Error('Not implemented')
     }
 
@@ -261,22 +240,33 @@ class PriceProviderBase {
             url
         }
         requestOptions.httpAgent = requestOptions.httpsAgent = PriceProviderBase.getProxyAgent(url)
-        const start = Date.now()
-        const response = await axios.request(requestOptions)
-        const time = Date.now() - start
-        PriceProviderBase.deleteRequestedUrl(url)
-        console.debug(`Request to ${url} took ${time}ms. Proxy: ${requestOptions.httpAgent ? `${requestOptions.httpAgent.proxy.host}:${requestOptions.httpAgent.proxy.port}` : 'no'}`)
-        return response
+        try {
+            const start = Date.now()
+            const response = await axios.request(requestOptions)
+            const time = Date.now() - start
+            PriceProviderBase.deleteRequestedUrl(url)
+            if (time > 1000)
+                console.debug(`Request to ${url} took ${time}ms. Proxy: ${requestOptions.httpAgent ? `${requestOptions.httpAgent.proxy.host}:${requestOptions.httpAgent.proxy.port}` : 'no'}`)
+            return response
+        } catch (err) {
+            console.error({err}, `Request to ${url} failed: ${err.message}. Proxy: ${requestOptions.httpAgent ? `${requestOptions.httpAgent.proxy.host}:${requestOptions.httpAgent.proxy.port}` : 'no'}`)
+            return null
+        }
     }
 
     /**
-     * @param {number} expectedTimestamp
-     * @param {number} actualTimestamp
+     * @param {number} targetTimestamp - target timestamp
+     * @param {number[]} timestamps - timestamps to validate in descending order
+     * @param {number} timeframe - timeframe in seconds
      * @protected
      */
-    validateTimestamp(expectedTimestamp, actualTimestamp) {
-        if (expectedTimestamp.toString() !== actualTimestamp?.toString())
-            throw new Error(`Timestamp mismatch: ${actualTimestamp} !== ${expectedTimestamp}`)
+    validateTimestamps(targetTimestamp, timestamps, timeframe) {
+        for (let i = 0; i < timestamps.length; i++) {
+            const actualTimestamp = timestamps[i]
+            if (actualTimestamp !== targetTimestamp)
+                throw new Error(`Timestamp mismatch: ${actualTimestamp} !== ${targetTimestamp}`)
+            targetTimestamp = targetTimestamp + timeframe
+        }
     }
 }
 

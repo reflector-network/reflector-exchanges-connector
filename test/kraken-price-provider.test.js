@@ -18,6 +18,6 @@ describe('KrakenPriceProvider', () => {
     })
 
     it('get price for invalid pair', async () => {
-        await getPriceTest(provider, pairs.invalidPair, true)
+        await getPriceTest(provider, pairs.invalidPair, 5, true)
     })
 })

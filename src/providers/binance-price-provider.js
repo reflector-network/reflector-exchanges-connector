@@ -1,4 +1,4 @@
-const OHLCV = require('../models/ohlcv')
+const TradeData = require('../models/trade-data')
 const PriceProviderBase = require('./price-provider-base')
 
 const baseApiUrl = 'https://api.binance.com/api/v3'
@@ -19,32 +19,33 @@ class BinancePriceProvider extends PriceProviderBase {
             .map(market => market.symbol)
     }
 
-    async __getOHLCV(pair, timestamp, timeframe, decimals, timeout) {
+    async __getTradeData(pair, timestamp, timeframe, count, timeout) {
         const symbolInfo = this.getSymbolInfo(pair)
         if (!symbolInfo)
             return null
         timestamp = timestamp * 1000
-        const klinesUrl = `${baseApiUrl}/klines?symbol=${symbolInfo.symbol}&interval=${timeframe}m&startTime=${timestamp}&limit=1`
+        const timeframeMs = timeframe * 60 * 1000
+        const klinesUrl = `${baseApiUrl}/klines?symbol=${symbolInfo.symbol}&interval=${timeframe}m&startTime=${timestamp}&limit=${count}`
         const response = await this.__makeRequest(klinesUrl, {timeout})
         const klines = response.data
         if (klines.length === 0)
             return null
-        const kline = klines[0]
-        this.validateTimestamp(timestamp, kline[0])
-        return new OHLCV({
-            open: kline[1],
-            high: kline[2],
-            low: kline[3],
-            close: kline[4],
-            volume: Number(kline[5]),
-            quoteVolume: Number(kline[7]),
-            inversed: symbolInfo.inversed,
-            source: this.name,
-            decimals,
-            base: pair.base.name,
-            quote: pair.quote.name,
-            completed: true //there is indicator to determine if the candle is closed
-        })
+        const tradesData = []
+        const timestamps = []
+        for (let i = 0; i < klines.length; i++) {
+            const kline = klines[i]
+            tradesData.push(new TradeData({
+                ts: Number(kline[0]) / 1000,
+                volume: Number(kline[5]),
+                quoteVolume: Number(kline[7]),
+                inversed: symbolInfo.inversed,
+                source: this.name,
+                completed: true //there is no indicator to determine if the candle is closed
+            }))
+            timestamps.push(Number(kline[0]))
+        }
+        this.validateTimestamps(timestamp, timestamps, timeframeMs)
+        return tradesData
     }
 }
 

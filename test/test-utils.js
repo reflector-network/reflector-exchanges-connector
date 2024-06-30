@@ -26,18 +26,21 @@ const timeframe = 5
 /**
  * @param {PriceProviderBase} provider
  * @param {Pair} pair
+ * @param {number} count
  * @param {boolean} expectNull
  * @returns {Promise<void>}
  */
-async function getPriceTest(provider, pair, expectNull = false) {
-    const ts = getTimestamp()
-    const ohlcv = await provider.getOHLCV(pair, ts, timeframe, 8)
+async function getPriceTest(provider, pair, count = 5, expectNull = false) {
+    const ts = getTimestamp() - timeframe * 60 * count
+    const tradesData = await provider.getTradesData(pair, ts, timeframe, count)
     if (expectNull) {
-        expect(ohlcv).toBeNull()
+        expect(tradesData).toBeNull()
         return null
     }
-    const price = ohlcv?.price() || 0n
-    expect(price).toBeGreaterThan(0n)
+    expect(tradesData.length).toBe(count)
+    const lastTrade = tradesData[tradesData.length - 1]
+    const price = lastTrade.quoteVolume / lastTrade.volume
+    expect(price).toBeGreaterThan(0)
     return price
 }
 
@@ -65,8 +68,8 @@ const assets = [
 ]
 
 const pairs = {
-    normalPair: new Pair(getAsset('BTC'), getAsset('USD')),
-    invertedPair: new Pair(getAsset('USD'), getAsset('BTC')),
+    normalPair: new Pair(getAsset('USD'), getAsset('BTC')),
+    invertedPair: new Pair(getAsset('BTC'), getAsset('USD')),
     invalidPair: new Pair(
         getAsset('UASC'),
         getAsset('SOME')
