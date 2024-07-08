@@ -39,8 +39,10 @@ async function getPriceTest(provider, pair, count = 5, expectNull = false) {
     }
     expect(tradesData.length).toBe(count)
     const lastTrade = tradesData[tradesData.length - 1]
-    const price = lastTrade.quoteVolume / lastTrade.volume
-    expect(price).toBeGreaterThan(0)
+    const price = (lastTrade.quoteVolume === 0n || lastTrade.volume === 0n)
+        ? 0n
+        : (lastTrade.quoteVolume * (10n ** BigInt(7 * 2))) / lastTrade.volume  //10^7 is the default precision
+    expect(price).toBeGreaterThan(0n)
     return price
 }
 

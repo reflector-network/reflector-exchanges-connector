@@ -37,8 +37,8 @@ class GatePriceProvider extends PriceProviderBase {
             const kline = klines[i]
             tradesData.push(new TradeData({
                 ts: Number(kline[0]),
-                volume: Number(kline[6]),
-                quoteVolume: Number(kline[1]),
+                volume: kline[6],
+                quoteVolume: kline[1],
                 inversed: symbolInfo.inversed,
                 source: this.name,
                 completed: kline[7].toUpperCase() === 'TRUE'

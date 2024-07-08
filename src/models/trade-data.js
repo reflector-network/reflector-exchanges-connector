@@ -1,31 +1,52 @@
+/**
+ * Convert arbitrary stringified amount to int64 representation
+ * @param {string|number} value - amount to convert
+ * @param {number} decimals - number of decimal places
+ * @return {BigInt}
+ */
+function volumeToBigInt(value, decimals = 7) {
+    if (!value)
+        return 0n
+    if (typeof value === 'number') {
+        value = value.toFixed(decimals)
+    }
+    if (typeof value !== 'string' || !/^-?[\d.,]+$/.test(value))
+        return 0n //invalid format
+    try {
+        const [int, decimal] = value.split('.', 2)
+        let res = BigInt(int) * (10n ** BigInt(decimals))
+        if (decimal) {
+            res += BigInt(decimal.slice(0, decimals).padEnd(decimals, '0'))
+        }
+        return res
+    } catch (e) {
+        return 0n
+    }
+}
+
+
 class TradeData {
     /**
      *
-     * @param {{volume: number, quoteVolume: number, inversed: boolean, source: string, completed: boolean}} raw - raw data
+     * @param {{volume: (number|string), quoteVolume: (number|string), inversed: boolean, source: string, completed: boolean}} raw - raw data
      */
     constructor(raw) {
-        //normalize data
-        raw = {
-            ...raw,
-            quoteVolume: Number(raw.quoteVolume),
-            volume: Number(raw.volume)
-        }
         const {volume, quoteVolume, inversed, source, completed} = raw
-        this.volume = inversed ? quoteVolume : volume
-        this.quoteVolume = inversed ? volume : quoteVolume
+        this.volume = volumeToBigInt(inversed ? quoteVolume : volume)
+        this.quoteVolume = volumeToBigInt(inversed ? volume : quoteVolume)
         this.source = source
         this.completed = completed
         this.ts = raw.ts
     }
 
     /**
-     * @type {number}
+     * @type {BigInt}
      * @readonly
      */
     volume
 
     /**
-     * @type {number}
+     * @type {BigInt}
      * @readonly
      */
     quoteVolume

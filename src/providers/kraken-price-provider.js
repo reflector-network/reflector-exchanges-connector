@@ -44,7 +44,7 @@ class KrakenPriceProvider extends PriceProviderBase {
             const kline = klines[i]
             tradesData.push(new TradeData({
                 ts: Number(kline[0]),
-                volume: Number(kline[6]),
+                volume: kline[6],
                 quoteVolume: Number(kline[5]) * Number(kline[6]), //volume * vwap
                 inversed: symbolInfo.inversed,
                 source: this.name,

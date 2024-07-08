@@ -36,8 +36,8 @@ class BinancePriceProvider extends PriceProviderBase {
             const kline = klines[i]
             tradesData.push(new TradeData({
                 ts: Number(kline[0]) / 1000,
-                volume: Number(kline[5]),
-                quoteVolume: Number(kline[7]),
+                volume: kline[5],
+                quoteVolume: kline[7],
                 inversed: symbolInfo.inversed,
                 source: this.name,
                 completed: true //there is no indicator to determine if the candle is closed
