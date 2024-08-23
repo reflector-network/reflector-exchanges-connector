@@ -16,6 +16,21 @@ const PriceProviderBase = require('./providers/price-provider-base')
  */
 
 /**
+ * @typedef {TradeData[]} AssetTradeData
+ * An array of trades from multiple sources for a single asset.
+ */
+
+/**
+ * @typedef {AssetTradeData[]} TimestampTradeData
+ * An array of asset trade data for a single timestamp.
+ */
+
+/**
+ * @typedef {TimestampTradeData[]} AggregatedTradeData
+ * An array of timestamped trade data for multiple assets.
+ */
+
+/**
  * @typedef {Object} FetchOptions
  * @property {number} [batchSize] - force fetch data from provider
  * @property {number} [batchDelay] - delay between batches
@@ -179,7 +194,7 @@ async function getProviderTradesData(provider, pairsBatches, timestamp, timefram
  * @param {number} timeframe - timeframe in seconds
  * @param {number} count - number of candles to get before the timestamp
  * @param {FetchOptions} options - fetch options
- * @returns {Promise<TradeData[][]>}
+ * @returns {Promise<AggregatedTradeData>}
  */
 async function getTradesData(assets, baseAsset, timestamp, timeframe, count, options = null) {
     if (assets.length === 0)
@@ -204,11 +219,25 @@ async function getTradesData(assets, baseAsset, timestamp, timeframe, count, opt
     }
     const providersResult = await Promise.all(fetchPromises)
     const tradesData = []
-    for (let i = 0; i < assets.length; i++) {
-        tradesData[i] = providersResult
-            .filter(result => result)
-            .map(t => t[i])
-            .filter(t => t)
+    for (let i = 0; i < providersResult.length; i++) {
+        for (let assetIndex = 0; assetIndex < providersResult[i].length; assetIndex++) {
+            //all trades for a single asset from a single provider
+            const assetTradeData = providersResult[i][assetIndex]
+            //trades for single asset from a single provider for all timestamps
+            for (let timestampIndex = 0; timestampIndex < assetTradeData.length; timestampIndex++) {
+                if (!tradesData[timestampIndex]) { //initialize array for timestamp
+                    tradesData[timestampIndex] = []
+                }
+                if (!tradesData[timestampIndex][assetIndex]) { //initialize array for asset
+                    tradesData[timestampIndex][assetIndex] = []
+                }
+                const trade = assetTradeData[timestampIndex]
+                if (!trade) {
+                    continue
+                }
+                tradesData[timestampIndex][assetIndex].push(assetTradeData[timestampIndex])
+            }
+        }
     }
 
     return tradesData

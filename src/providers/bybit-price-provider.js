@@ -21,32 +21,22 @@ class BybitPriceProvider extends PriceProviderBase {
 
     async __getTradeData(pair, timestamp, timeframe, count, timeout) {
         const symbolInfo = this.getSymbolInfo(pair)
-        if (!symbolInfo)
-            return null
-        timestamp = timestamp * 1000
-        const timeframeMs = timeframe * 60 * 1000
-        const klinesUrl = `${baseApiUrl}/market/kline?category=spot&symbol=${symbolInfo.symbol}&interval=${timeframe}&start=${timestamp}&limit=${count}`
+        const klinesUrl = `${baseApiUrl}/market/kline?category=spot&symbol=${symbolInfo.symbol}&interval=${timeframe}&start=${timestamp * 1000}&limit=${count}`
         const response = await this.__makeRequest(klinesUrl, {timeout})
         const klines = response.data.result.list
-        if (klines.length === 0)
-            return null
-        const tradesData = []
-        const timestamps = []
-        //bybit returns candles in descending order, so reverse the array
-        for (let i = klines.length - 1; i >= 0; i--) {
-            const kline = klines[i]
-            tradesData.push(new TradeData({
-                ts: Number(kline[0]) / 1000,
-                volume: kline[5],
-                quoteVolume: kline[6],
-                inversed: symbolInfo.inversed,
-                source: this.name,
-                completed: true //there is no indicator to determine if the candle is closed
-            }))
-            timestamps.push(Number(kline[0]))
-        }
-        this.validateTimestamps(timestamp, timestamps, timeframeMs)
-        return tradesData
+        klines.reverse()//bybit returns the oldest first
+        return this.__processKlines(klines, timestamp, symbolInfo.inversed, timeframe, count)
+    }
+
+    __processSingleKline(kline, inversed) {
+        return new TradeData({
+            ts: Number(kline[0]) / 1000,
+            volume: kline[5],
+            quoteVolume: kline[6],
+            inversed,
+            source: this.name,
+            completed: true //there is no indicator to determine if the candle is closed
+        })
     }
 }
 

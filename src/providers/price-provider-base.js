@@ -174,7 +174,44 @@ class PriceProviderBase {
                 })
             )
         }
+        const symbolInfo = this.getSymbolInfo(pair)
+        if (!symbolInfo)
+            return this.__processKlines([], timestamp, false, timeframe, count)
         return this.__getTradeData(pair, timestamp, timeframe, count, timeout)
+    }
+
+    /**
+     * @param {any[]} klines - klines data
+     * @param {number} timestamp - timestamp in seconds
+     * @param {boolean} inversed - is pair inversed
+     * @param {number} timeframe - timeframe in minutes
+     * @param {number} count - number of candles to get
+     * @returns {TradeData[]} Returns TradeData array in ascending order
+     */
+    __processKlines(klines, timestamp, inversed, timeframe, count) {
+        if (!klines)
+            klines = []
+        const tradesData = Array(count).fill()
+        const timeframeSeconds = timeframe * 60
+        let currentTimestamp = timestamp
+        for (let i = 0; i < count; i++) {
+            const tradeData = klines[i] ? this.__processSingleKline(klines[i], inversed) : {}
+            if (tradeData.ts === currentTimestamp) { //if not trades happened, the timestamp will be empty
+                tradesData[i] = tradeData
+            } else { //if no trades happened, create empty trade
+                tradesData[i] = new TradeData({
+                    ts: currentTimestamp,
+                    volume: 0,
+                    quoteVolume: 0,
+                    inversed,
+                    source: this.name,
+                    completed: true
+                })
+            }
+            currentTimestamp += timeframeSeconds
+        }
+        this.validateTimestamps(timestamp, tradesData.map(t => t.ts), timeframeSeconds)
+        return tradesData
     }
 
     /**

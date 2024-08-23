@@ -21,9 +21,6 @@ class KrakenPriceProvider extends PriceProviderBase {
 
     async __getTradeData(pair, timestamp, timeframe, count, timeout) {
         const symbolInfo = this.getSymbolInfo(pair)
-        if (!symbolInfo)
-            return null
-
         const timeframeSeconds = timeframe * 60
         const to = timestamp + timeframeSeconds * count
         //since is exclusive, so we need to subtract a second to get the kline that matches the timestamp
@@ -35,32 +32,19 @@ class KrakenPriceProvider extends PriceProviderBase {
             //Kraken API doesn't have limit=1, so we need to filter the klines
             .filter(kline => kline[0] >= timestamp && kline[0] < to)
 
-        if (klines.length === 0)
-            return null
+        return this.__processKlines(klines, timestamp, symbolInfo.inversed, timeframe, count)
 
-        const tradesData = []
-        const timestamps = []
-        for (let i = 0; i < klines.length; i++) {
-            const kline = klines[i]
-            tradesData.push(new TradeData({
-                ts: Number(kline[0]),
-                volume: kline[6],
-                quoteVolume: Number(kline[5]) * Number(kline[6]), //volume * vwap
-                inversed: symbolInfo.inversed,
-                source: this.name,
-                completed: true //there is no indicator to determine if the candle is closed
-            }))
-            timestamps.push(Number(kline[0]))
-        }
-        this.validateTimestamps(timestamp, timestamps, timeframeSeconds)
-        return tradesData
     }
 
-    __getCurrentKline(klines, timestamp) {
-        for (let i = 0; i < klines.length; i++) {
-            if (klines[i][0] <= timestamp)
-                return klines[i]
-        }
+    __processSingleKline(kline, inversed) {
+        return new TradeData({
+            ts: Number(kline[0]),
+            volume: kline[6],
+            quoteVolume: Number(kline[5]) * Number(kline[6]), //volume * vwap
+            inversed,
+            source: this.name,
+            completed: true //there is no indicator to determine if the candle is closed
+        })
     }
 
     __formatSymbol(base, quote) {
