@@ -2,7 +2,6 @@
 const https = require('https')
 const http = require('http')
 const {default: axios} = require('axios')
-const {SocksProxyAgent} = require('socks-proxy-agent')
 const TradeData = require('../models/trade-data')
 
 const defaultAgentOptions = {keepAlive: true, maxSockets: 50, noDelay: true}
@@ -14,15 +13,6 @@ axios.defaults.httpAgent = httpAgent
 
 const httpsAgent = new https.Agent(defaultAgentOptions)
 axios.defaults.httpsAgent = httpsAgent
-
-function createProxyAgent(proxyConnectionString) {
-    if (!proxyConnectionString)
-        return null
-    if (!proxyConnectionString || !proxyConnectionString.startsWith('socks'))
-        throw new Error(`Invalid proxy uri ${proxyConnectionString}`)
-    const socksAgent = new SocksProxyAgent(proxyConnectionString, defaultAgentOptions)
-    return socksAgent
-}
 
 function getRotatedIndex(index, length) {
     return (index + 1) % length
@@ -45,47 +35,44 @@ class PriceProviderBase {
         this.cachedSymbols = {}
     }
 
-    static setProxy(proxyConnectionSting, useCurrentProvider) {
+    static setProxy(proxyConnectionSting, validationKey, useCurrentProvider) {
         if (!proxyConnectionSting) {
-            PriceProviderBase.proxyAgents = null
+            PriceProviderBase.proxyUrls = null
+            PriceProviderBase.validationKey = null
             return
         }
 
-        const proxies = []
         if (!Array.isArray(proxyConnectionSting))
             proxyConnectionSting = [proxyConnectionSting]
 
-        for (const p of proxyConnectionSting) {
-            try {
-                proxies.push(createProxyAgent(p))
-            } catch (e) {
-                console.error(e)
-            }
-        }
+        const proxies = proxyConnectionSting
+
         if (proxies.length === 0) {
-            PriceProviderBase.proxyAgents = null
+            PriceProviderBase.proxyUrls = null
+            PriceProviderBase.validationKey = null
             return
         }
 
         if (useCurrentProvider) //add current server
             proxies.unshift(undefined)
 
-        PriceProviderBase.proxyAgents = proxies
+        PriceProviderBase.proxyUrls = proxies
+        PriceProviderBase.validationKey = validationKey
     }
 
-    static getProxyAgent(url) {
-        if (!PriceProviderBase.proxyAgents) //no proxies
+    static getProxyUrl(url) {
+        if (!PriceProviderBase.proxyUrls) //no proxies
             return undefined
 
-        if (PriceProviderBase.proxyAgents.length === 1) //single proxy, no need to rotate
-            return PriceProviderBase.proxyAgents[0]
+        if (PriceProviderBase.proxyUrls.length === 1) //single proxy, no need to rotate
+            return PriceProviderBase.proxyUrls[0]
 
         //try to get proxy index for url
-        const index = getRandomIndex(PriceProviderBase.proxyAgents.length, requestedUrls.get(url))
+        const index = getRandomIndex(PriceProviderBase.proxyUrls.length, requestedUrls.get(url))
 
         //set proxy index for url
         PriceProviderBase.setRequestedUrl(url, index)
-        return PriceProviderBase.proxyAgents[index]
+        return PriceProviderBase.proxyUrls[index]
     }
 
     static setRequestedUrl(url, proxyIndex) {
@@ -210,7 +197,7 @@ class PriceProviderBase {
             }
             currentTimestamp += timeframeSeconds
         }
-        this.validateTimestamps(timestamp, tradesData.map(t => t.ts), timeframeSeconds)
+        this.__validateTimestamps(timestamp, tradesData.map(t => t.ts), timeframeSeconds)
         return tradesData
     }
 
@@ -239,9 +226,9 @@ class PriceProviderBase {
     }
 
     /**
-     * @param {Asset} base
-     * @param {Asset} quote
-     * @param {boolean} [inversed]
+     * @param {Asset} base - base asset
+     * @param {Asset} quote - quote asset
+     * @param {boolean} [inversed] - is pair inversed
      * @returns {string|null}
      */
     __getSymbol(base, quote, inversed = false) {
@@ -272,21 +259,31 @@ class PriceProviderBase {
      * @protected
      */
     async __makeRequest(url, options = {}) {
+        const proxyUrl = PriceProviderBase.getProxyUrl(url)
+        if (proxyUrl) {
+            url = `${proxyUrl}/proxy?url=${encodeURIComponent(url)}`
+            //add validation key
+            if (!options)
+                options = {}
+            options.headers = {
+                ...options.headers,
+                'x-proxy-validation': PriceProviderBase.validationKey
+            }
+        }
         const requestOptions = {
             ...options,
             url
         }
-        requestOptions.httpAgent = requestOptions.httpsAgent = PriceProviderBase.getProxyAgent(url)
         try {
             const start = Date.now()
             const response = await axios.request(requestOptions)
             const time = Date.now() - start
             PriceProviderBase.deleteRequestedUrl(url)
             if (time > 1000)
-                console.debug(`Request to ${url} took ${time}ms. Proxy: ${requestOptions.httpAgent ? `${requestOptions.httpAgent.proxy.host}:${requestOptions.httpAgent.proxy.port}` : 'no'}`)
+                console.debug(`Request to ${url} took ${time}ms. Proxy: ${proxyUrl ? proxyUrl : 'no'}`)
             return response
         } catch (err) {
-            console.error(`Request to ${url} failed: ${err.message}. Proxy: ${requestOptions.httpAgent ? `${requestOptions.httpAgent.proxy.host}:${requestOptions.httpAgent.proxy.port}` : 'no'}`)
+            console.error(`Request to ${url} failed: ${err.message}. Proxy: ${proxyUrl ? proxyUrl : 'no'}`)
             return null
         }
     }
@@ -297,7 +294,7 @@ class PriceProviderBase {
      * @param {number} timeframe - timeframe in seconds
      * @protected
      */
-    validateTimestamps(targetTimestamp, timestamps, timeframe) {
+    __validateTimestamps(targetTimestamp, timestamps, timeframe) {
         for (let i = 0; i < timestamps.length; i++) {
             const actualTimestamp = timestamps[i]
             if (actualTimestamp !== targetTimestamp)

@@ -125,7 +125,7 @@ async function fetchPairTradesData(provider, pair, timestamp, timeframe, count, 
     }
     if (errors.length > 0)
         console.warn(`Failed to get data for ${pair.name} from ${provider.name}: ${errors.join(', ')}`)
-    return null
+    return []
 }
 
 /**
@@ -243,8 +243,8 @@ async function getTradesData(assets, baseAsset, timestamp, timeframe, count, opt
     return tradesData
 }
 
-function setProxy(proxyOptions, useCurrentProvider = false) {
-    PriceProviderBase.setProxy(proxyOptions, useCurrentProvider)
+function setProxy(proxyOptions, proxyValidationKey, useCurrentProvider = false) {
+    PriceProviderBase.setProxy(proxyOptions, proxyValidationKey, useCurrentProvider)
 }
 
 module.exports = { getTradesData, setProxy }

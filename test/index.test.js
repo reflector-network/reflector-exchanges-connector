@@ -5,9 +5,8 @@ const {assets, getTimestamp} = require('./test-utils')
 
 const data = []
 const proxies = [
-    'socks5://user-reflector_30hMu:feVy7KQXyzNe@ddc.oxylabs.io:8001',
-    'socks5://user-reflector_30hMu:feVy7KQXyzNe@ddc.oxylabs.io:8002',
-    'socks5://user-reflector_30hMu:feVy7KQXyzNe@ddc.oxylabs.io:8003'
+    'http://localhost:8081',
+    'http://localhost:8082'
 ]
 
 describe('index', () => {
