@@ -1,6 +1,6 @@
 /*eslint-disable no-undef */
 const fs = require('fs')
-const {setProxy, getTradesData} = require('../src')
+const {setGateway, getTradesData} = require('../src')
 const {assets, getTimestamp} = require('./test-utils')
 
 const data = []
@@ -40,11 +40,11 @@ describe('index', () => {
     }, 30000)
 
 
-    it('get prices with proxy', async () => {
-        setProxy(proxies, true)
+    it('get prices with gateway', async () => {
+        setGateway(proxies, true)
         const newTradesData = await getTradesData(assets, 'USD', timestamp, timeframe, count, {batchSize: 10, batchDelay: 1000, timeout: 3000, sources: ['binance', 'bybit', 'kraken', 'gate', 'okx', 'coinbase']})
         expect(newTradesData.length).toBe(assets.length)
-        setProxy(null)
+        setGateway(null)
         expect(newTradesData.length).toBe(tradesData.length)
         for (let i = 0; i < tradesData.length; i++) {
             const currentAssetTrades = tradesData[i]

@@ -243,8 +243,8 @@ async function getTradesData(assets, baseAsset, timestamp, timeframe, count, opt
     return tradesData
 }
 
-function setProxy(proxyOptions, proxyValidationKey, useCurrentProvider = false) {
-    PriceProviderBase.setProxy(proxyOptions, proxyValidationKey, useCurrentProvider)
+function setGateway(gatewayOptions, gatewayValidationKey, useCurrentProvider = false) {
+    PriceProviderBase.setGateway(gatewayOptions, gatewayValidationKey, useCurrentProvider)
 }
 
-module.exports = { getTradesData, setProxy }
+module.exports = { getTradesData, setGateway }

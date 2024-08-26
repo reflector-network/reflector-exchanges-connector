@@ -35,20 +35,20 @@ class PriceProviderBase {
         this.cachedSymbols = {}
     }
 
-    static setProxy(proxyConnectionSting, validationKey, useCurrentProvider) {
-        if (!proxyConnectionSting) {
-            PriceProviderBase.proxyUrls = null
+    static setGateway(gatewayConnectionSting, validationKey, useCurrentProvider) {
+        if (!gatewayConnectionSting) {
+            PriceProviderBase.gatewayUrls = null
             PriceProviderBase.validationKey = null
             return
         }
 
-        if (!Array.isArray(proxyConnectionSting))
-            proxyConnectionSting = [proxyConnectionSting]
+        if (!Array.isArray(gatewayConnectionSting))
+            gatewayConnectionSting = [gatewayConnectionSting]
 
-        const proxies = proxyConnectionSting
+        const proxies = gatewayConnectionSting
 
         if (proxies.length === 0) {
-            PriceProviderBase.proxyUrls = null
+            PriceProviderBase.gatewayUrls = null
             PriceProviderBase.validationKey = null
             return
         }
@@ -56,33 +56,33 @@ class PriceProviderBase {
         if (useCurrentProvider) //add current server
             proxies.unshift(undefined)
 
-        PriceProviderBase.proxyUrls = proxies
+        PriceProviderBase.gatewayUrls = proxies
         PriceProviderBase.validationKey = validationKey
     }
 
-    static getProxyUrl(url) {
-        if (!PriceProviderBase.proxyUrls) //no proxies
+    static getGatewayUrl(url) {
+        if (!PriceProviderBase.gatewayUrls) //no proxies
             return undefined
 
-        if (PriceProviderBase.proxyUrls.length === 1) //single proxy, no need to rotate
-            return PriceProviderBase.proxyUrls[0]
+        if (PriceProviderBase.gatewayUrls.length === 1) //single gateway, no need to rotate
+            return PriceProviderBase.gatewayUrls[0]
 
-        //try to get proxy index for url
-        const index = getRandomIndex(PriceProviderBase.proxyUrls.length, requestedUrls.get(url))
+        //try to get gateway index for url
+        const index = getRandomIndex(PriceProviderBase.gatewayUrls.length, requestedUrls.get(url))
 
-        //set proxy index for url
+        //set gateway index for url
         PriceProviderBase.setRequestedUrl(url, index)
-        return PriceProviderBase.proxyUrls[index]
+        return PriceProviderBase.gatewayUrls[index]
     }
 
-    static setRequestedUrl(url, proxyIndex) {
-        //if url is already errored, update proxyIndex
+    static setRequestedUrl(url, gatewayIndex) {
+        //if url is already errored, update gatewayIndex
         if (requestedUrls.has(url)) {
-            requestedUrls.set(url, proxyIndex)
+            requestedUrls.set(url, gatewayIndex)
             return
         }
         //add url to requestedUrls
-        requestedUrls.set(url, proxyIndex)
+        requestedUrls.set(url, gatewayIndex)
         if (requestedUrls.size > 1000) { //remove first key if size is more than 1000
             const firstKey = requestedUrls.keys().next().value
             PriceProviderBase.deleteRequestedUrl(firstKey)
@@ -259,15 +259,15 @@ class PriceProviderBase {
      * @protected
      */
     async __makeRequest(url, options = {}) {
-        const proxyUrl = PriceProviderBase.getProxyUrl(url)
-        if (proxyUrl) {
-            url = `${proxyUrl}/proxy?url=${encodeURIComponent(url)}`
+        const gatewayUrl = PriceProviderBase.getGatewayUrl(url)
+        if (gatewayUrl) {
+            url = `${gatewayUrl}/gateway?url=${encodeURIComponent(url)}`
             //add validation key
             if (!options)
                 options = {}
             options.headers = {
                 ...options.headers,
-                'x-proxy-validation': PriceProviderBase.validationKey
+                'x-gateway-validation': PriceProviderBase.validationKey
             }
         }
         const requestOptions = {
@@ -280,10 +280,10 @@ class PriceProviderBase {
             const time = Date.now() - start
             PriceProviderBase.deleteRequestedUrl(url)
             if (time > 1000)
-                console.debug(`Request to ${url} took ${time}ms. Proxy: ${proxyUrl ? proxyUrl : 'no'}`)
+                console.debug(`Request to ${url} took ${time}ms. Gateway: ${gatewayUrl ? gatewayUrl : 'no'}`)
             return response
         } catch (err) {
-            console.error(`Request to ${url} failed: ${err.message}. Proxy: ${proxyUrl ? proxyUrl : 'no'}`)
+            console.error(`Request to ${url} failed: ${err.message}. Gateway: ${gatewayUrl ? gatewayUrl : 'no'}`)
             return null
         }
     }
