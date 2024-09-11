@@ -67,26 +67,15 @@ class PriceProviderBase {
         if (PriceProviderBase.gatewayUrls.length === 1) //single gateway, no need to rotate
             return PriceProviderBase.gatewayUrls[0]
 
-        //try to get gateway index for url
-        const index = getRandomIndex(PriceProviderBase.gatewayUrls.length, requestedUrls.get(url))
-
-        //set gateway index for url
-        PriceProviderBase.setRequestedUrl(url, index)
-        return PriceProviderBase.gatewayUrls[index]
-    }
-
-    static setRequestedUrl(url, gatewayIndex) {
-        //if url is already errored, update gatewayIndex
-        if (requestedUrls.has(url)) {
-            requestedUrls.set(url, gatewayIndex)
-            return
+        const host = new URL(url).host
+        if (!requestedUrls.has(host)) {//first request to the host. Assign first gateway
+            requestedUrls.set(host, 0)
+            return PriceProviderBase.gatewayUrls[0]
         }
-        //add url to requestedUrls
-        requestedUrls.set(url, gatewayIndex)
-        if (requestedUrls.size > 1000) { //remove first key if size is more than 1000
-            const firstKey = requestedUrls.keys().next().value
-            PriceProviderBase.deleteRequestedUrl(firstKey)
-        }
+        const index = requestedUrls.get(host)
+        const newIndex = getRotatedIndex(index, PriceProviderBase.gatewayUrls.length)
+        requestedUrls.set(host, newIndex)
+        return PriceProviderBase.gatewayUrls[newIndex]
     }
 
     static deleteRequestedUrl(url) {
