@@ -1,6 +1,6 @@
 {
   "name": "@reflector/exchanges-connector",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "CEX & DEX data source for Reflector backend",
   "main": "src/index.js",

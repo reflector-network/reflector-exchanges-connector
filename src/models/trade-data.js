@@ -71,8 +71,7 @@ class TradeData {
         return {
             volume: this.volume,
             quoteVolume: this.quoteVolume,
-            source: this.source,
-            completed: this.completed
+            source: this.source
         }
     }
 }

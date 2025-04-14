@@ -36,16 +36,17 @@ describe('index', () => {
 
     it('get prices', async () => {
         tradesData = await getTradesData(assets, 'USD', timestamp, timeframe, count, {batchSize: 5, batchDelay: 1000, timeout: 3000, sources: ['binance', 'bybit', 'kraken', 'gate', 'okx', 'coinbase']})
-        expect(tradesData.length).toBe(assets.length)
+        expect(tradesData.length).toBe(count)
+        expect(tradesData[0].length).toBe(assets.length)
     }, 30000)
 
 
     it('get prices with gateway', async () => {
         setGateway(proxies, true)
         const newTradesData = await getTradesData(assets, 'USD', timestamp, timeframe, count, {batchSize: 10, batchDelay: 1000, timeout: 3000, sources: ['binance', 'bybit', 'kraken', 'gate', 'okx', 'coinbase']})
-        expect(newTradesData.length).toBe(assets.length)
+        expect(newTradesData.length).toBe(count)
         setGateway(null)
-        expect(newTradesData.length).toBe(tradesData.length)
+        expect(newTradesData[0].length).toBe(tradesData[0].length)
         for (let i = 0; i < tradesData.length; i++) {
             const currentAssetTrades = tradesData[i]
             const newCurrentAssetTrades = newTradesData[i]
