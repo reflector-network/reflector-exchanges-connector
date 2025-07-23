@@ -40,7 +40,7 @@ class GatePriceProvider extends PriceProviderBase {
     }
 
     __formatSymbol(base, quote) {
-        return `${quote}_${base}`
+        return `${base}_${quote}`
     }
 }
 

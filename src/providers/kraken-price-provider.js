@@ -48,7 +48,7 @@ class KrakenPriceProvider extends PriceProviderBase {
     }
 
     __formatSymbol(base, quote) {
-        return `${quote}${base}`
+        return `${base}${quote}`
     }
 }
 

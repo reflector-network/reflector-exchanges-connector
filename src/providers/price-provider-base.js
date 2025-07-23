@@ -238,7 +238,7 @@ class PriceProviderBase {
      * @protected
      */
     __formatSymbol(base, quote) {
-        return `${quote.toUpperCase()}${base.toUpperCase()}`
+        return `${base.toUpperCase()}${quote.toUpperCase()}`
     }
 
     /**

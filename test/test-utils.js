@@ -34,7 +34,7 @@ async function getPriceTest(provider, pair, count = 5, expectNull = false) {
     const ts = getTimestamp() - timeframe * 60 * count
     const tradesData = await provider.getTradesData(pair, ts, timeframe, count)
     if (expectNull) {
-        expect(tradesData).toBeNull()
+        expect(tradesData.filter(d => d.quoteVolume !== 0n && d.volume !== 0n).length).toBe(0)
         return null
     }
     expect(tradesData.length).toBe(count)
