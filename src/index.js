@@ -186,65 +186,61 @@ async function getProviderTradesData(provider, pairsBatches, timestamp, timefram
     return allTradesData
 }
 
-/**
- * Gets aggregated prices from multiple providers
- * @param {string[]} assets - list of asset names
- * @param {string} baseAsset - base asset name
- * @param {number} timestamp - timestamp UNIX in seconds
- * @param {number} timeframe - timeframe in seconds
- * @param {number} count - number of candles to get before the timestamp
- * @param {FetchOptions} options - fetch options
- * @returns {Promise<AggregatedTradeData>}
- */
-async function getTradesData(assets, baseAsset, timestamp, timeframe, count, options = null) {
-    if (assets.length === 0)
-        return []
-    const pairs = getPairs(assets, baseAsset)
-    if (timeframe % 60 !== 0) {
-        throw new Error('Timeframe should be whole minutes')
-    }
-    timeframe = timeframe / 60
-    if (timeframe > 60) {
-        throw new Error('Timeframe should be less than or equal to 60 minutes')
-    }
+class ExchangesPriceProvider {
+    /**
+     * Gets aggregated prices from multiple providers
+     * @param {{assets: string[], baseAsset: string, from: number, period: number, count: number, options: [FetchOptions]}} options - fetch options
+     * @returns {Promise<AggregatedTradeData>}
+     */
+    async getPriceData({assets, baseAsset, from, period, count, options = {}}) {
+        if (assets.length === 0)
+            return []
+        const pairs = getPairs(assets, baseAsset)
+        if (period % 60 !== 0) {
+            throw new Error('Timeframe should be whole minutes')
+        }
+        period = period / 60
+        if (period > 60) {
+            throw new Error('Timeframe should be less than or equal to 60 minutes')
+        }
 
-    const { batchSize, sources, batchDelay, timeout } = { ...defaultFetchOptions, ...options }
+        const { batchSize, sources, batchDelay, timeout } = { ...defaultFetchOptions, ...options }
 
-    const fetchPromises = []
-    const pairsBatches = getPairsBatches(pairs, batchSize)
-    const providers = getSupportedProviders(sources)
-    for (const provider of providers) {
-        const providerTradesDataPromise = getProviderTradesData(provider, pairsBatches, timestamp, timeframe, count, batchDelay, timeout)
-        fetchPromises.push(providerTradesDataPromise)
-    }
-    const providersResult = await Promise.all(fetchPromises)
-    const tradesData = []
-    for (let i = 0; i < providersResult.length; i++) {
-        for (let assetIndex = 0; assetIndex < providersResult[i].length; assetIndex++) {
-            //all trades for a single asset from a single provider
-            const assetTradeData = providersResult[i][assetIndex]
-            //trades for single asset from a single provider for all timestamps
-            for (let timestampIndex = 0; timestampIndex < assetTradeData.length; timestampIndex++) {
-                if (!tradesData[timestampIndex]) { //initialize array for timestamp
-                    tradesData[timestampIndex] = []
+        const fetchPromises = []
+        const pairsBatches = getPairsBatches(pairs, batchSize)
+        const providers = getSupportedProviders(sources)
+        for (const provider of providers) {
+            const providerTradesDataPromise = getProviderTradesData(provider, pairsBatches, from, period, count, batchDelay, timeout)
+            fetchPromises.push(providerTradesDataPromise)
+        }
+        const providersResult = await Promise.all(fetchPromises)
+        const tradesData = []
+        for (let i = 0; i < providersResult.length; i++) {
+            for (let assetIndex = 0; assetIndex < providersResult[i].length; assetIndex++) {
+                //all trades for a single asset from a single provider
+                const assetTradeData = providersResult[i][assetIndex]
+                //trades for single asset from a single provider for all timestamps
+                for (let timestampIndex = 0; timestampIndex < assetTradeData.length; timestampIndex++) {
+                    if (!tradesData[timestampIndex]) { //initialize array for timestamp
+                        tradesData[timestampIndex] = []
+                    }
+                    if (!tradesData[timestampIndex][assetIndex]) { //initialize array for asset
+                        tradesData[timestampIndex][assetIndex] = []
+                    }
+                    const trade = assetTradeData[timestampIndex]
+                    if (!trade) {
+                        continue
+                    }
+                    tradesData[timestampIndex][assetIndex].push(assetTradeData[timestampIndex])
                 }
-                if (!tradesData[timestampIndex][assetIndex]) { //initialize array for asset
-                    tradesData[timestampIndex][assetIndex] = []
-                }
-                const trade = assetTradeData[timestampIndex]
-                if (!trade) {
-                    continue
-                }
-                tradesData[timestampIndex][assetIndex].push(assetTradeData[timestampIndex])
             }
         }
+
+        return tradesData
     }
 
-    return tradesData
+    setGateway(gatewayOptions, gatewayValidationKey, useCurrentProvider = false) {
+        PriceProviderBase.setGateway(gatewayOptions, gatewayValidationKey, useCurrentProvider)
+    }
 }
-
-function setGateway(gatewayOptions, gatewayValidationKey, useCurrentProvider = false) {
-    PriceProviderBase.setGateway(gatewayOptions, gatewayValidationKey, useCurrentProvider)
-}
-
-module.exports = { getTradesData, setGateway }
+module.exports = ExchangesPriceProvider

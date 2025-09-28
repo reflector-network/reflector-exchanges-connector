@@ -1,6 +1,6 @@
 /*eslint-disable no-undef */
 const fs = require('fs')
-const {setGateway, getTradesData} = require('../src')
+const ExchangesPriceProvider = require('../src')
 const {assets, getTimestamp} = require('./test-utils')
 
 const data = []
@@ -35,17 +35,19 @@ describe('index', () => {
     const timestamp = getTimestamp() - (timeframe * count)
 
     it('get prices', async () => {
-        tradesData = await getTradesData(assets, 'USD', timestamp, timeframe, count, {batchSize: 5, batchDelay: 1000, timeout: 3000, sources: ['binance', 'bybit', 'kraken', 'gate', 'okx', 'coinbase']})
+        const provider = new ExchangesPriceProvider()
+        tradesData = await provider.getPriceData({assets, baseAsset: 'USD', from: timestamp, period: timeframe, count, options: {batchSize: 5, batchDelay: 1000, timeout: 3000, sources: ['binance', 'bybit', 'kraken', 'gate', 'okx', 'coinbase']}})
         expect(tradesData.length).toBe(count)
         expect(tradesData[0].length).toBe(assets.length)
     }, 30000)
 
 
     it('get prices with gateway', async () => {
-        setGateway(proxies, true)
-        const newTradesData = await getTradesData(assets, 'USD', timestamp, timeframe, count, {batchSize: 10, batchDelay: 1000, timeout: 3000, sources: ['binance', 'bybit', 'kraken', 'gate', 'okx', 'coinbase']})
+        const provider = new ExchangesPriceProvider()
+        provider.setGateway(proxies, null, true)
+        const newTradesData = await provider.getPriceData({assets, baseAsset: 'USD', from: timestamp, period: timeframe, count, options: {batchSize: 10, batchDelay: 1000, timeout: 3000, sources: ['binance', 'bybit', 'kraken', 'gate', 'okx', 'coinbase']}})
         expect(newTradesData.length).toBe(count)
-        setGateway(null)
+        provider.setGateway(null)
         expect(newTradesData[0].length).toBe(tradesData[0].length)
         for (let i = 0; i < tradesData.length; i++) {
             const currentAssetTrades = tradesData[i]
