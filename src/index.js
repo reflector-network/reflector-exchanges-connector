@@ -112,11 +112,10 @@ async function fetchPairTradesData(provider, pair, timestamp, timeframe, count, 
             if (!tradesData) {
                 console.debug(`No data for ${pair.name} from ${provider.name}`)
                 break
-            } else if (tradesData.some(trade => !trade.completed)) {
-                console.debug(`Incomplete data for ${pair.name} from ${provider.name}. ${tries > 0 ? 'Retrying...' : 'Skipping...'}`)
-                continue
-            }
-            return tradesData
+            } 
+            if (tradesData.every(trade => trade.completed)) 
+                return tradesData
+            console.debug(`Incomplete data for ${pair.name} from ${provider.name}. ${tries > 1 ? 'Retrying...' : 'Skipping...'}`)
         } catch (error) {
             errors.push(error.message)
         } finally {
@@ -216,6 +215,8 @@ class ExchangesPriceProvider {
         const providersResult = await Promise.all(fetchPromises)
         const tradesData = []
         for (let i = 0; i < providersResult.length; i++) {
+            if (!providersResult[i])
+                continue
             for (let assetIndex = 0; assetIndex < providersResult[i].length; assetIndex++) {
                 //all trades for a single asset from a single provider
                 const assetTradeData = providersResult[i][assetIndex]

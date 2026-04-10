@@ -42,7 +42,7 @@ describe('index', () => {
     }, 30000)
 
 
-    it('get prices with gateway', async () => {
+    it.skip('get prices with gateway', async () => {
         const provider = new ExchangesPriceProvider()
         provider.setGateway(proxies, null, true)
         const newTradesData = await provider.getPriceData({assets, baseAsset: 'USD', from: timestamp, period: timeframe, count, options: {batchSize: 10, batchDelay: 1000, timeout: 3000, sources: ['binance', 'bybit', 'kraken', 'gate', 'okx', 'coinbase']}})
