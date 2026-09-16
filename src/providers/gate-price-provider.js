@@ -1,3 +1,4 @@
+/*eslint-disable class-methods-use-this */
 const TradeData = require('../models/trade-data')
 const PriceProviderBase = require('./price-provider-base')
 
@@ -10,10 +11,21 @@ class GatePriceProvider extends PriceProviderBase {
 
     name = 'gate'
 
+    /**
+     * Gate answers errors with an object {label, message} where a list is expected.
+     * @param {any} data - response payload
+     * @returns {any[]}
+     */
+    __requireList(data) {
+        if (data && !Array.isArray(data) && (data.label !== undefined || data.message !== undefined))
+            throw new Error(`gate: ${data.label} ${data.message}`)
+        return this.__requireArray(data)
+    }
+
     async __loadMarkets(timeout) {
         const marketsUrl = `${baseUrl}/spot/currency_pairs`
         const response = await this.__makeRequest(marketsUrl, {timeout})
-        const markets = response.data
+        const markets = this.__requireList(response.data)
         return markets
             .filter(market => market.trade_status.toUpperCase() === 'TRADABLE')
             .map(market => market.id)
@@ -24,18 +36,18 @@ class GatePriceProvider extends PriceProviderBase {
         const normalizedTimeframe = timeframe === 60 ? '1h' : `${timeframe}m`
         const klinesUrl = `${baseUrl}/spot/candlesticks?currency_pair=${symbolInfo.symbol}&interval=${normalizedTimeframe}&from=${timestamp}&limit=${count}`
         const response = await this.__makeRequest(klinesUrl, {timeout})
-        const klines = response.data
+        const klines = this.__requireList(response.data)
         return this.__processKlines(klines, timestamp, symbolInfo.inversed, timeframe, count)
     }
 
     __processSingleKline(kline, inversed) {
         return new TradeData({
-            ts: Number(kline[0]),
-            volume: kline[6],
-            quoteVolume: kline[1],
+            ts: PriceProviderBase.toNumber(kline[0], 'timestamp'),
+            volume: PriceProviderBase.validateAmount(kline[6], 'volume'),
+            quoteVolume: PriceProviderBase.validateAmount(kline[1], 'quote volume'),
             inversed,
             source: this.name,
-            completed: kline[7].toUpperCase() === 'TRUE'
+            completed: String(kline[7]).toUpperCase() === 'TRUE'
         })
     }
 

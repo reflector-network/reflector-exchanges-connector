@@ -1,3 +1,4 @@
+/*eslint-disable class-methods-use-this */
 const TradeData = require('../models/trade-data')
 const PriceProviderBase = require('./price-provider-base')
 
@@ -10,10 +11,20 @@ class OkxPriceProvider extends PriceProviderBase {
 
     name = 'okx'
 
+    /**
+     * @param {any} data - response payload; code '0' is success
+     * @returns {any[]} data list
+     */
+    __requireList(data) {
+        if (!data || data.code !== '0')
+            throw new Error(`okx: ${data?.code} ${data?.msg}`)
+        return this.__requireArray(data.data)
+    }
+
     async __loadMarkets(timeout) {
         const marketsUrl = `${baseApiUrl}/public/instruments?instType=SPOT`
         const response = await this.__makeRequest(marketsUrl, {timeout})
-        const markets = response.data.data
+        const markets = this.__requireList(response.data)
         return markets
             .filter(market => market.state.toUpperCase() === 'LIVE')
             .map(market => market.instId)
@@ -29,16 +40,15 @@ class OkxPriceProvider extends PriceProviderBase {
         //https://www.okx.com/docs-v5/en/#order-book-trading-market-data-get-candlesticks
         const klinesUrl = `${baseApiUrl}/market/candles?instId=${symbolInfo.symbol}&bar=${bar}&before=${before}&after=${after}&limit=${count}`
         const response = await this.__makeRequest(klinesUrl, {timeout})
-        const klines = response.data.data
-        klines.reverse()//okx returns the oldest first
+        const klines = this.__requireList(response.data)
         return this.__processKlines(klines, timestamp, symbolInfo.inversed, timeframe, count)
     }
 
     __processSingleKline(kline, inversed) {
         return new TradeData({
-            ts: Number(kline[0]) / 1000,
-            volume: kline[5],
-            quoteVolume: kline[7],
+            ts: PriceProviderBase.toNumber(kline[0], 'timestamp') / 1000,
+            volume: PriceProviderBase.validateAmount(kline[5], 'volume'),
+            quoteVolume: PriceProviderBase.validateAmount(kline[7], 'quote volume'),
             inversed,
             source: this.name,
             completed: kline[8] === '1'

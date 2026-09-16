@@ -305,16 +305,15 @@ class PriceProviderBase {
     getTradesData(pair, timestamp, timeframe, count, timeout = 3000) {
         if (count < 1)
             throw new Error('Count should be greater than 0')
-        if (pair.base.name === pair.quote.name) {
-            return Array(count).fill(
-                new TradeData({
-                    volume: 1,
-                    quoteVolume: 1,
-                    inversed: false,
-                    source: this.name
-                })
-            )
-        }
+        if (pair.base.name === pair.quote.name)
+            return Array.from({length: count}, (_, i) => new TradeData({
+                ts: timestamp + i * timeframe * 60,
+                volume: 1,
+                quoteVolume: 1,
+                inversed: false,
+                source: this.name,
+                completed: true
+            }))
         const symbolInfo = this.getSymbolInfo(pair)
         if (!symbolInfo)
             return this.__processKlines([], timestamp, false, timeframe, count)
@@ -322,37 +321,68 @@ class PriceProviderBase {
     }
 
     /**
-     * @param {any[]} klines - klines data
-     * @param {number} timestamp - timestamp in seconds
+     * @param {any[]} klines - klines data in any order; each maps to a TradeData with its own `ts`
+     * @param {number} timestamp - first candle timestamp in seconds
      * @param {boolean} inversed - is pair inversed
      * @param {number} timeframe - timeframe in minutes
-     * @param {number} count - number of candles to get
-     * @returns {TradeData[]} Returns TradeData array in ascending order
+     * @param {number} count - number of candles to return
+     * @returns {TradeData[]} `count` candles in ascending order; a minute without a kline is a zero-volume completed candle
      */
     __processKlines(klines, timestamp, inversed, timeframe, count) {
-        if (!klines)
-            klines = []
-        const tradesData = Array(count).fill()
         const timeframeSeconds = timeframe * 60
-        let currentTimestamp = timestamp
-        for (let i = 0; i < count; i++) {
-            const tradeData = klines[i] ? this.__processSingleKline(klines[i], inversed) : {}
-            if (tradeData.ts === currentTimestamp) { //if not trades happened, the timestamp will be empty
-                tradesData[i] = tradeData
-            } else { //if no trades happened, create empty trade
-                tradesData[i] = new TradeData({
-                    ts: currentTimestamp,
-                    volume: 0,
-                    quoteVolume: 0,
-                    inversed,
-                    source: this.name,
-                    completed: true
-                })
-            }
-            currentTimestamp += timeframeSeconds
+        const byTimestamp = new Map()
+        for (const kline of klines ?? []) {
+            const tradeData = this.__processSingleKline(kline, inversed)
+            byTimestamp.set(tradeData.ts, tradeData)
         }
-        this.__validateTimestamps(timestamp, tradesData.map(t => t.ts), timeframeSeconds)
+        const tradesData = []
+        for (let i = 0; i < count; i++) {
+            const ts = timestamp + i * timeframeSeconds
+            tradesData.push(byTimestamp.get(ts) ?? new TradeData({
+                ts,
+                volume: 0,
+                quoteVolume: 0,
+                inversed,
+                source: this.name,
+                completed: true
+            }))
+        }
         return tradesData
+    }
+
+    /**
+     * @param {any} value - payload part that must be a list of klines
+     * @returns {any[]}
+     * @protected
+     */
+    __requireArray(value) {
+        if (!Array.isArray(value))
+            throw new Error(`${this.name}: unexpected klines payload`)
+        return value
+    }
+
+    /**
+     * @param {any} value - raw numeric field from an exchange payload (number or numeric string)
+     * @param {string} field - field name for the error message
+     * @returns {number}
+     */
+    static toNumber(value, field) {
+        const number = typeof value === 'number' || (typeof value === 'string' && value.trim() !== '') ? Number(value) : NaN
+        if (!Number.isFinite(number) || number < 0)
+            throw new Error(`Invalid ${field}: ${String(value)}`)
+        return number
+    }
+
+    /**
+     * Validates an amount the way `toNumber` does but returns the original value, so TradeData parses the exchange's own
+     * representation and every node derives the same BigInt.
+     * @param {any} value - raw amount
+     * @param {string} field - field name for the error message
+     * @returns {number|string}
+     */
+    static validateAmount(value, field) {
+        PriceProviderBase.toNumber(value, field)
+        return value
     }
 
     /**
@@ -442,21 +472,6 @@ class PriceProviderBase {
             }
         }
         throw lastError
-    }
-
-    /**
-     * @param {number} targetTimestamp - target timestamp
-     * @param {number[]} timestamps - timestamps to validate in descending order
-     * @param {number} timeframe - timeframe in seconds
-     * @protected
-     */
-    __validateTimestamps(targetTimestamp, timestamps, timeframe) {
-        for (let i = 0; i < timestamps.length; i++) {
-            const actualTimestamp = timestamps[i]
-            if (actualTimestamp !== targetTimestamp)
-                throw new Error(`Timestamp mismatch: ${actualTimestamp} !== ${targetTimestamp}`)
-            targetTimestamp = targetTimestamp + timeframe
-        }
     }
 }
 
