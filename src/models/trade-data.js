@@ -64,7 +64,7 @@ class TradeData {
     completed
 
     toJSON() {
-        return JSON.stringify(this.toPlainObject())
+        return this.toPlainObject()
     }
 
     toPlainObject() {

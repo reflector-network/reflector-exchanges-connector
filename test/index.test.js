@@ -1,5 +1,4 @@
 /*eslint-disable no-undef */
-const fs = require('fs')
 const ExchangesPriceProvider = require('../src')
 const {assets, getTimestamp} = require('./test-utils')
 
@@ -67,9 +66,4 @@ describe('index', () => {
             }
         }
     }, 30000)
-
-    afterAll(() => {
-        const log = JSON.stringify(data, (_, v) => typeof v === 'bigint' ? v.toString() : v, 2)
-        fs.writeFileSync('index.log', log)
-    })
 })
