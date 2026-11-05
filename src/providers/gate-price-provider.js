@@ -11,6 +11,8 @@ class GatePriceProvider extends PriceProviderBase {
 
     name = 'gate'
 
+    quoteOrder = ['USDT', 'USDC', 'USD']
+
     /**
      * Gate answers errors with an object {label, message} where a list is expected.
      * @param {any} data - response payload
@@ -31,13 +33,12 @@ class GatePriceProvider extends PriceProviderBase {
             .map(market => market.id)
     }
 
-    async __getTradeData(pair, timestamp, timeframe, count, timeout) {
-        const symbolInfo = this.getSymbolInfo(pair)
+    async __getTradeData(market, timestamp, timeframe, count, timeout) {
         const normalizedTimeframe = timeframe === 60 ? '1h' : `${timeframe}m`
-        const klinesUrl = `${baseUrl}/spot/candlesticks?currency_pair=${symbolInfo.symbol}&interval=${normalizedTimeframe}&from=${timestamp}&limit=${count}`
+        const klinesUrl = `${baseUrl}/spot/candlesticks?currency_pair=${market.symbol}&interval=${normalizedTimeframe}&from=${timestamp}&limit=${count}`
         const response = await this.__makeRequest(klinesUrl, {timeout})
         const klines = this.__requireList(response.data)
-        return this.__processKlines(klines, timestamp, symbolInfo.inversed, timeframe, count)
+        return this.__processKlines(klines, timestamp, market.inversed, timeframe, count)
     }
 
     __processSingleKline(kline, inversed) {

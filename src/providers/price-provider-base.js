@@ -76,6 +76,12 @@ function isUsableGateway(gatewayUrl) {
     return gatewayRejectionReason(gatewayUrl) === null
 }
 
+/**
+ * @typedef {Object} Market
+ * @property {string} symbol - exchange symbol
+ * @property {boolean} inversed - true when the symbol lists the pair's assets in reverse order
+ */
+
 class PriceProviderBase {
     constructor(apiKey, secret) {
         if (this.constructor === PriceProviderBase)
@@ -83,7 +89,7 @@ class PriceProviderBase {
         this.apiKey = apiKey
         this.secret = secret
         this.markets = []
-        this.cachedSymbols = {}
+        this.cachedMarkets = {}
     }
 
     /**
@@ -267,10 +273,19 @@ class PriceProviderBase {
      */
     marketsLoadedAt = 0
     /**
-     * @type {{}}
+     * Markets resolved per pair name; cleared whenever the market list is reloaded.
+     * @type {Object<string, Market[]>}
      * @protected
      */
-    cachedSymbols
+    cachedMarkets
+
+    /**
+     * Quote currencies to try on this exchange, most liquid first. It orders the aliases of the pair's base asset
+     * (for USD: USD, USDT and USDC); aliases it does not list follow in glossary order.
+     * @type {string[]}
+     * @readonly
+     */
+    quoteOrder = []
 
     /**
      * @param {number} [timeout] - request timeout in milliseconds. Default is 3000ms
@@ -278,7 +293,7 @@ class PriceProviderBase {
      */
     async loadMarkets(timeout = 3000) {
         const markets = await this.__loadMarkets(timeout)
-        this.cachedSymbols = {} //clear cache
+        this.cachedMarkets = {} //clear cache
         this.marketsLoadedAt = Date.now() //set timestamp
         this.markets = markets //set markets
     }
@@ -294,15 +309,16 @@ class PriceProviderBase {
     }
 
     /**
-     *
      * @param {Pair} pair - pair to get trades data for
      * @param {number} timestamp - timestamp in seconds
      * @param {number} timeframe - timeframe in minutes
      * @param {number} count - number of candles to get
      * @param {number} [timeout] - request timeout in milliseconds. Default is 3000ms
+     * @param {Market|null} [market] - market to read, one of `getMarkets(pair)`; null when the exchange has none for the
+     * pair; when omitted, the pair's first market
      * @returns {Promise<TradeData[]|null>} Returns TradeData array in ascending order or null if no data
      */
-    getTradesData(pair, timestamp, timeframe, count, timeout = 3000) {
+    getTradesData(pair, timestamp, timeframe, count, timeout = 3000, market) {
         if (count < 1)
             throw new Error('Count should be greater than 0')
         if (pair.base.name === pair.quote.name)
@@ -314,10 +330,11 @@ class PriceProviderBase {
                 source: this.name,
                 completed: true
             }))
-        const symbolInfo = this.getSymbolInfo(pair)
-        if (!symbolInfo)
+        if (market === undefined)
+            market = this.getSymbolInfo(pair)
+        if (!market)
             return this.__processKlines([], timestamp, false, timeframe, count)
-        return this.__getTradeData(pair, timestamp, timeframe, count, timeout)
+        return this.__getTradeData(market, timestamp, timeframe, count, timeout)
     }
 
     /**
@@ -386,7 +403,7 @@ class PriceProviderBase {
     }
 
     /**
-     * @param {Pair} pair - pair to get trades data for
+     * @param {Market} market - market to read
      * @param {number} timestamp - timestamp in seconds
      * @param {number} timeframe - timeframe in minutes
      * @param {number} count - number of candles to get
@@ -394,30 +411,66 @@ class PriceProviderBase {
      * @abstract
      * @protected
      */
-    __getTradeData(pair, timestamp, timeframe, count, timeout) { //eslint-disable-line no-unused-vars
+    __getTradeData(market, timestamp, timeframe, count, timeout) { //eslint-disable-line no-unused-vars
         throw new Error('Not implemented')
     }
 
     /**
-     * @param {Pair} pair - pair to get symbol info for
-     * @returns {{symbol: string, inversed: boolean} | null}
+     * Markets the exchange has for a pair, at most one per quote currency, in `quoteOrder`. For each quote currency a
+     * direct market is preferred over an inverted one, and the asset's aliases are tried in glossary order. A quote
+     * currency the asset itself trades as is skipped, so an asset is never priced against itself. The result is cached
+     * until the market list reloads; the list reloads in the same 6-hour window on every node, so every node resolves
+     * the same markets.
+     * @param {Pair} pair - pair to resolve; its base asset supplies the quote currencies
+     * @returns {Market[]}
      */
-    getSymbolInfo(pair) {
-        if (this.cachedSymbols[pair.name] !== undefined)
-            return this.cachedSymbols[pair.name]
-
-        return this.cachedSymbols[pair.name] = this.__getSymbol(pair.base, pair.quote) || this.__getSymbol(pair.quote, pair.base, true)
+    getMarkets(pair) {
+        const cached = this.cachedMarkets[pair.name]
+        if (cached !== undefined)
+            return cached
+        const markets = []
+        if (pair.base.name !== pair.quote.name) {
+            for (const currency of this.__orderQuoteCurrencies(pair.base.alias)) {
+                if (pair.quote.alias.includes(currency))
+                    continue
+                const market = this.__findMarket([currency], pair.quote.alias) || this.__findMarket(pair.quote.alias, [currency], true)
+                if (market)
+                    markets.push(market)
+            }
+        }
+        return this.cachedMarkets[pair.name] = markets
     }
 
     /**
-     * @param {Asset} base - base asset
-     * @param {Asset} quote - quote asset
-     * @param {boolean} [inversed] - is pair inversed
-     * @returns {string|null}
+     * @param {Pair} pair - pair to get symbol info for
+     * @returns {Market|null} the pair's first market
      */
-    __getSymbol(base, quote, inversed = false) {
-        for (const alias of base.alias) { //TODO: optimize this function
-            for (const quoteAlias of quote.alias) {
+    getSymbolInfo(pair) {
+        return this.getMarkets(pair)[0] ?? null
+    }
+
+    /**
+     * @param {string[]} aliases - aliases of the pair's base asset
+     * @returns {string[]} the aliases `quoteOrder` lists, in its order, then the others in glossary order
+     * @private
+     */
+    __orderQuoteCurrencies(aliases) {
+        return [
+            ...this.quoteOrder.filter(currency => aliases.includes(currency)),
+            ...aliases.filter(currency => !this.quoteOrder.includes(currency))
+        ]
+    }
+
+    /**
+     * @param {string[]} baseAliases - aliases for the market's base side
+     * @param {string[]} quoteAliases - aliases for the market's quote side
+     * @param {boolean} [inversed] - is pair inversed
+     * @returns {Market|null} the first listed market, base aliases in the outer loop
+     * @private
+     */
+    __findMarket(baseAliases, quoteAliases, inversed = false) {
+        for (const alias of baseAliases) {
+            for (const quoteAlias of quoteAliases) {
                 const symbol = this.__formatSymbol(alias, quoteAlias)
                 if (this.markets.includes(symbol))
                     return {symbol, inversed}

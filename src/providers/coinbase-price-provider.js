@@ -11,6 +11,8 @@ class CoinbasePriceProvider extends PriceProviderBase {
 
     name = 'coinbase'
 
+    quoteOrder = ['USD', 'USDT', 'USDC']
+
     /**
      * Coinbase answers errors with an object {message} where a list is expected.
      * @param {any} data - response payload
@@ -31,14 +33,13 @@ class CoinbasePriceProvider extends PriceProviderBase {
             .map(market => market.id)
     }
 
-    async __getTradeData(pair, timestamp, timeframe, count, timeout) {
-        const symbolInfo = this.getSymbolInfo(pair)
+    async __getTradeData(market, timestamp, timeframe, count, timeout) {
         const timeframeSeconds = timeframe * 60
         const end = timestamp + ((count - 1) * timeframeSeconds) //end is inclusive, so we need to subtract 1
-        const klinesUrl = `${baseApiUrl}/products/${symbolInfo.symbol}/candles?granularity=${timeframe}m&start=${timestamp}&end=${end}`
+        const klinesUrl = `${baseApiUrl}/products/${market.symbol}/candles?granularity=${timeframe}m&start=${timestamp}&end=${end}`
         const response = await this.__makeRequest(klinesUrl, {timeout})
         const klines = this.__requireList(response.data)
-        return this.__processKlines(klines, timestamp, symbolInfo.inversed, timeframe, count)
+        return this.__processKlines(klines, timestamp, market.inversed, timeframe, count)
     }
 
     __processSingleKline(kline, inversed) {

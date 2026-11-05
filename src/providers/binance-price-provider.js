@@ -11,6 +11,8 @@ class BinancePriceProvider extends PriceProviderBase {
 
     name = 'binance'
 
+    quoteOrder = ['USDT', 'USDC', 'USD']
+
     /**
      * Binance answers errors with HTTP 200 and an object {code, msg} where a list is expected.
      * @param {any} data - response payload
@@ -32,12 +34,11 @@ class BinancePriceProvider extends PriceProviderBase {
             .map(market => market.symbol)
     }
 
-    async __getTradeData(pair, timestamp, timeframe, count, timeout) {
-        const symbolInfo = this.getSymbolInfo(pair)
-        const klinesUrl = `${baseApiUrl}/klines?symbol=${symbolInfo.symbol}&interval=${timeframe}m&startTime=${timestamp * 1000}&limit=${count}`
+    async __getTradeData(market, timestamp, timeframe, count, timeout) {
+        const klinesUrl = `${baseApiUrl}/klines?symbol=${market.symbol}&interval=${timeframe}m&startTime=${timestamp * 1000}&limit=${count}`
         const response = await this.__makeRequest(klinesUrl, {timeout})
         const klines = this.__requireList(response.data)
-        return this.__processKlines(klines, timestamp, symbolInfo.inversed, timeframe, count)
+        return this.__processKlines(klines, timestamp, market.inversed, timeframe, count)
     }
 
     __processSingleKline(kline, inversed) {

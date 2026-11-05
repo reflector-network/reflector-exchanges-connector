@@ -11,6 +11,8 @@ class OkxPriceProvider extends PriceProviderBase {
 
     name = 'okx'
 
+    quoteOrder = ['USDT', 'USDC', 'USD']
+
     /**
      * @param {any} data - response payload; code '0' is success
      * @returns {any[]} data list
@@ -30,18 +32,17 @@ class OkxPriceProvider extends PriceProviderBase {
             .map(market => market.instId)
     }
 
-    async __getTradeData(pair, timestamp, timeframe, count, timeout) {
-        const symbolInfo = this.getSymbolInfo(pair)
+    async __getTradeData(market, timestamp, timeframe, count, timeout) {
         const timestampInMs = timestamp * 1000
         const timeframeInMs = timeframe * 60000
         const before = timestampInMs - timeframeInMs
         const after = timestampInMs + (count * timeframeInMs)
         const bar = timeframe === 60 ? '1h' : `${timeframe}m`
         //https://www.okx.com/docs-v5/en/#order-book-trading-market-data-get-candlesticks
-        const klinesUrl = `${baseApiUrl}/market/candles?instId=${symbolInfo.symbol}&bar=${bar}&before=${before}&after=${after}&limit=${count}`
+        const klinesUrl = `${baseApiUrl}/market/candles?instId=${market.symbol}&bar=${bar}&before=${before}&after=${after}&limit=${count}`
         const response = await this.__makeRequest(klinesUrl, {timeout})
         const klines = this.__requireList(response.data)
-        return this.__processKlines(klines, timestamp, symbolInfo.inversed, timeframe, count)
+        return this.__processKlines(klines, timestamp, market.inversed, timeframe, count)
     }
 
     __processSingleKline(kline, inversed) {

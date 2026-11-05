@@ -18,7 +18,31 @@ A provider cannot loosen these limits: per-request `maxRedirects`, `maxContentLe
 
 `getPriceData({assets, baseAsset, from, period, count, options})` returns `count` slots of `assets.length` arrays of `TradeData`. The matrix is dense: a pair or provider that produced nothing contributes zero-volume candles, which the node treats as no data. Candles are placed by their own timestamp, so a minute an exchange omitted is zero and later minutes stay aligned. Unconfirmed candles (OKX, Gate) are attempted up to three times (two retries) with a back-off and then blanked; confirmed candles are kept. Exchange error envelopes returned with HTTP 200 are rejected and every numeric field is validated before it is parsed.
 
-Market lists refresh in 6-hour wall-clock windows so all nodes reload after the same boundary and select the same symbol for a pair.
+Market lists refresh in 6-hour wall-clock windows so all nodes reload after the same boundary and select the same markets for a pair.
+
+## Market selection
+
+Each provider tries its quote currencies in its own order (`quoteOrder`), most liquid first:
+
+| Providers | Order |
+| --- | --- |
+| Binance, Bybit, OKX, Gate | USDT, USDC, USD |
+| Coinbase, Kraken | USD, USDT, USDC |
+
+The order applies to the aliases of the base asset. Aliases it does not list follow in glossary order, so a base asset other than USD keeps its glossary order. `getMarkets(pair)` returns at most one market per quote currency, in that order. For each quote currency a direct market is preferred over an inverted one, and the asset's aliases are tried in glossary order. A quote currency the asset itself trades as is skipped, so an asset is never priced against itself. `getSymbolInfo(pair)` is the first of them.
+
+`options.marketMode` decides how many of those markets a provider reads:
+
+- `first` (default): only the first market, one request per pair.
+- `combine`: every market, one request each. For each minute the volumes and quote volumes of the markets that returned data are summed exactly (BigInt) into one candle labelled with the provider's name. A market that fails after its retries, or a candle still unconfirmed after them, is left out of the sum; a minute with nothing left is zero. A node that missed a market reports a smaller sum, which the other nodes do not confirm, just as they would not confirm zeros. When every node misses the same market, for example one delisted between market reloads, their smaller sums agree and the provider still counts.
+
+Any other value throws. Every node must use the same mode, since it changes the volumes the node reports. A failed market is logged with its symbol.
+
+## Batches
+
+`batchSize` counts requests, not pairs, and a pair without a market (or an identity pair) is answered without a request, so it takes no slot. Each batch's requests are sent at once. A provider's batches start at least `batchDelay` apart, also across calls, so a call that follows another one right away, or runs next to it, waits its turn; nothing waits after a call's last batch. `reflector-node` passes its number of gateways as `batchSize` and 1.5 s as `batchDelay`, and gateways rotate per exchange host, so each gateway sends each exchange about one request per 1.5 s.
+
+`combine` mode, with up to three markets per pair, takes up to three times as many batches as `first` mode. `reflector-node` estimates its fetch timeout from the number of pairs, so turning `combine` on there also needs that estimate to count markets.
 
 ## Asset aliases
 

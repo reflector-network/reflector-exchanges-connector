@@ -7,7 +7,7 @@ const PriceProviderBase = require('../src/providers/price-provider-base')
 const RequestError = require('../src/providers/request-error')
 const Pair = require('../src/models/pair')
 const {getAsset} = require('../src/assets-cache')
-const {fetchPairTradesData, ensureMarketLoaded} = require('../src')
+const {fetchMarketTradesData, mergeMarketsTradesData, ensureMarketLoaded} = require('../src')
 
 class TestProvider extends PriceProviderBase {
     name = 'test'
@@ -306,7 +306,7 @@ describe('a node with no usable gateway loses the tick cleanly', () => {
             return this.__makeRequest(`${baseUrl}/markets`, {timeout}).then(response => response.data)
         }
 
-        __getTradeData(pair, timestamp, timeframe, count, timeout) {
+        __getTradeData(market, timestamp, timeframe, count, timeout) {
             return this.__makeRequest(`${baseUrl}/klines`, {timeout}).then(response => response.data)
         }
     }
@@ -317,7 +317,10 @@ describe('a node with no usable gateway loses the tick cleanly', () => {
         PriceProviderBase.setGateway(['http://user:TOPSECRET@'], 'key')
 
         const pair = new Pair(getAsset('USD'), getAsset('BTC'))
-        const trades = await fetchPairTradesData(requesting, pair, 1700000000, 1, 2, 1000)
+        const market = requesting.getSymbolInfo(pair)
+        const tradesData = await fetchMarketTradesData(requesting, pair, market, 1700000000, 1, 2, 1000)
+        expect(tradesData).toBeNull() //every attempt failed
+        const trades = mergeMarketsTradesData(requesting, [tradesData], 1700000000, 1, 2)
         expect(trades).toHaveLength(2)
         expect(trades.every(trade => trade.volume === 0n && trade.completed)).toBe(true) //no data, the accepted cost
 

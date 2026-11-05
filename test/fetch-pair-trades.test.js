@@ -26,7 +26,22 @@ function candle(ts, completed) {
     return new TradeData({ts, volume: '100', quoteVolume: '200', inversed: false, source: 'test', completed})
 }
 
-const {fetchPairTradesData, ensureMarketLoaded} = ExchangesPriceProvider
+const {fetchMarketTradesData, mergeMarketsTradesData, ensureMarketLoaded} = ExchangesPriceProvider
+
+/**
+ * One pair read through one market, the way `first` mode reads it.
+ * @param {object} provider - provider or stub
+ * @param {Pair} pair - pair to fetch
+ * @param {number} timestamp - first candle timestamp
+ * @param {number} timeframe - timeframe in minutes
+ * @param {number} count - number of candles
+ * @param {number} timeout - request timeout
+ * @returns {Promise<TradeData[]>}
+ */
+async function fetchPairTradesData(provider, pair, timestamp, timeframe, count, timeout) {
+    const tradesData = await fetchMarketTradesData(provider, pair, {symbol: 'BTCUSDT', inversed: true}, timestamp, timeframe, count, timeout)
+    return mergeMarketsTradesData(provider, [tradesData], timestamp, timeframe, count)
+}
 
 beforeAll(() => {
     jest.spyOn(console, 'debug').mockImplementation(() => {})
@@ -37,7 +52,7 @@ afterAll(() => {
     jest.restoreAllMocks()
 })
 
-describe('fetchPairTradesData', () => {
+describe('fetching one market', () => {
     test('returns confirmed data on the first attempt', async () => {
         const provider = stubProvider('test', () => [candle(start, true), candle(start + 60, true)])
         const result = await fetchPairTradesData(provider, pair, start, 1, 2, 100)

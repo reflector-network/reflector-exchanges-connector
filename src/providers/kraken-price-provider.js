@@ -11,6 +11,8 @@ class KrakenPriceProvider extends PriceProviderBase {
 
     name = 'kraken'
 
+    quoteOrder = ['USD', 'USDT', 'USDC']
+
     /**
      * Kraken always answers {error: [], result: {...}}; a non-empty error list is a failure.
      * @param {any} data - response payload
@@ -33,12 +35,11 @@ class KrakenPriceProvider extends PriceProviderBase {
             .map(market => markets[market].altname)
     }
 
-    async __getTradeData(pair, timestamp, timeframe, count, timeout) {
-        const symbolInfo = this.getSymbolInfo(pair)
+    async __getTradeData(market, timestamp, timeframe, count, timeout) {
         const timeframeSeconds = timeframe * 60
         const to = timestamp + timeframeSeconds * count
         //since is exclusive, so we need to subtract a second to get the kline that matches the timestamp
-        const klinesUrl = `${baseApiUrl}/public/OHLC?pair=${symbolInfo.symbol}&interval=${timeframe}&since=${timestamp - 1}`
+        const klinesUrl = `${baseApiUrl}/public/OHLC?pair=${market.symbol}&interval=${timeframe}&since=${timestamp - 1}`
         const response = await this.__makeRequest(klinesUrl, {timeout})
         const result = this.__requireResult(response.data)
         //Kraken API returns an object with the last and the pair name. Pair name is not always the same as the symbol
@@ -47,7 +48,7 @@ class KrakenPriceProvider extends PriceProviderBase {
             //Kraken API doesn't have limit=1, so we need to filter the klines
             .filter(kline => PriceProviderBase.toNumber(kline[0], 'timestamp') >= timestamp && PriceProviderBase.toNumber(kline[0], 'timestamp') < to)
 
-        return this.__processKlines(klines, timestamp, symbolInfo.inversed, timeframe, count)
+        return this.__processKlines(klines, timestamp, market.inversed, timeframe, count)
     }
 
     __processSingleKline(kline, inversed) {

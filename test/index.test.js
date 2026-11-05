@@ -40,6 +40,26 @@ describe('index', () => {
         expect(tradesData[0].length).toBe(assets.length)
     }, 30000)
 
+    it('combine adds the other markets of a source to the first one', async () => {
+        const provider = new ExchangesPriceProvider()
+        const options = {batchSize: 5, batchDelay: 1000, timeout: 3000, sources: ['binance']}
+        const request = {assets: ['BTC', 'ETH'], baseAsset: 'USD', from: timestamp, period: timeframe, count: 10}
+        const first = await provider.getPriceData({...request, options})
+        const combined = await provider.getPriceData({...request, options: {...options, marketMode: 'combine'}})
+        let larger = 0
+        for (let i = 0; i < request.count; i++) {
+            for (let a = 0; a < request.assets.length; a++) {
+                const [firstTrade] = first[i][a]
+                const [combinedTrade] = combined[i][a]
+                if (combinedTrade.volume === 0n) //a failed market blanks the pair
+                    continue
+                expect(combinedTrade.volume >= firstTrade.volume).toBe(true)
+                if (combinedTrade.volume > firstTrade.volume)
+                    larger++
+            }
+        }
+        expect(larger).toBeGreaterThan(0)
+    }, 30000)
 
     it.skip('get prices with gateway', async () => {
         const provider = new ExchangesPriceProvider()

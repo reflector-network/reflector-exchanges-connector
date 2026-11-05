@@ -11,6 +11,8 @@ class BybitPriceProvider extends PriceProviderBase {
 
     name = 'bybit'
 
+    quoteOrder = ['USDT', 'USDC', 'USD']
+
     /**
      * @param {any} data - response payload; retCode 0 is success
      * @returns {any[]} result.list
@@ -30,12 +32,11 @@ class BybitPriceProvider extends PriceProviderBase {
             .map(market => market.symbol)
     }
 
-    async __getTradeData(pair, timestamp, timeframe, count, timeout) {
-        const symbolInfo = this.getSymbolInfo(pair)
-        const klinesUrl = `${baseApiUrl}/market/kline?category=spot&symbol=${symbolInfo.symbol}&interval=${timeframe}&start=${timestamp * 1000}&limit=${count}`
+    async __getTradeData(market, timestamp, timeframe, count, timeout) {
+        const klinesUrl = `${baseApiUrl}/market/kline?category=spot&symbol=${market.symbol}&interval=${timeframe}&start=${timestamp * 1000}&limit=${count}`
         const response = await this.__makeRequest(klinesUrl, {timeout})
         const klines = this.__requireList(response.data)
-        return this.__processKlines(klines, timestamp, symbolInfo.inversed, timeframe, count)
+        return this.__processKlines(klines, timestamp, market.inversed, timeframe, count)
     }
 
     __processSingleKline(kline, inversed) {

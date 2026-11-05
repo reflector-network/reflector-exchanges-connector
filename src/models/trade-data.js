@@ -1,12 +1,14 @@
 /**
  * Convert arbitrary stringified amount to int64 representation
- * @param {string|number} value - amount to convert
+ * @param {string|number|BigInt} value - amount to convert; a BigInt is already in this representation
  * @param {number} decimals - number of decimal places
  * @return {BigInt}
  */
 function volumeToBigInt(value, decimals = 7) {
     if (!value)
         return 0n
+    if (typeof value === 'bigint')
+        return value
     if (typeof value === 'number') {
         value = value.toFixed(decimals)
     }
@@ -28,7 +30,7 @@ function volumeToBigInt(value, decimals = 7) {
 class TradeData {
     /**
      *
-     * @param {{volume: (number|string), quoteVolume: (number|string), inversed: boolean, source: string, completed: boolean}} raw - raw data
+     * @param {{volume: (number|string|BigInt), quoteVolume: (number|string|BigInt), inversed: boolean, source: string, completed: boolean}} raw - raw data
      */
     constructor(raw) {
         const {volume, quoteVolume, inversed, source, completed} = raw

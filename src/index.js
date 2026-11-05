@@ -15,6 +15,7 @@ const RequestError = require('./providers/request-error')
  * @typedef {import('./models/asset')} Asset
  * @typedef {import('./models/trade-data')} TradeData
  * @typedef {import('./providers/price-provider-base')} PriceProviderBase
+ * @typedef {import('./providers/price-provider-base').Market} Market
  */
 
 /**
@@ -38,9 +39,13 @@ const RequestError = require('./providers/request-error')
  * @property {number} [batchDelay] - delay between batches
  * @property {string[]} [sources] - list of sources to fetch data from
  * @property {number} [timeout] - request timeout
+ * @property {('first'|'combine')} [marketMode] - read only the first market a source has for a pair (default), or sum
+ * the volumes of all its markets for the pair, one per quote currency
  */
 
-const defaultFetchOptions = {batchSize: 10, batchDelay: 2000, sources: ['binance', 'bybit', 'coinbase', 'kraken', 'okx']} //ignore gate for now
+const defaultFetchOptions = {batchSize: 10, batchDelay: 2000, sources: ['binance', 'bybit', 'coinbase', 'kraken', 'okx'], marketMode: 'first'} //ignore gate for now
+
+const marketModes = ['first', 'combine']
 
 /**
  * @typedef {Object} PriceData
@@ -72,19 +77,50 @@ function getPairs(assets, baseAsset) {
 }
 
 /**
- * Splits pairs into batches
- * @param {Pair[]} pairs - list of pairs
+ * Splits requests into batches
+ * @template T
+ * @param {T[]} items - list of requests
  * @param {number} batchSize - batch size
- * @returns {Array<Pair[]>} list of pairs batches
+ * @returns {Array<T[]>} list of batches
  */
-function getPairsBatches(pairs, batchSize) {
+function getBatches(items, batchSize) {
+    if (items.length === 0)
+        return []
     if (batchSize <= 0)
-        return [pairs]
-    const pairsBatches = []
-    for (let i = 0; i < pairs.length; i += batchSize) {
-        pairsBatches.push(pairs.slice(i, i + batchSize))
+        return [items]
+    const batches = []
+    for (let i = 0; i < items.length; i += batchSize) {
+        batches.push(items.slice(i, i + batchSize))
     }
-    return pairsBatches
+    return batches
+}
+
+/**
+ * @typedef {Object} MarketRequest
+ * @property {number} pairIndex - index of the pair in the requested list
+ * @property {Pair} pair - pair the market belongs to
+ * @property {Market|null} market - market to read; null when the source has none for the pair, which costs no request
+ */
+
+/**
+ * One request per pair in `first` mode, one per market in `combine` mode. A pair without a market gets one entry with a
+ * null market, which is answered without a request.
+ * @param {PriceProviderBase} provider - provider with loaded markets
+ * @param {Pair[]} pairs - pairs to fetch
+ * @param {string} marketMode - first or combine
+ * @returns {MarketRequest[]}
+ */
+function getMarketRequests(provider, pairs, marketMode) {
+    const requests = []
+    pairs.forEach((pair, pairIndex) => {
+        const markets = provider.getMarkets(pair)
+        const selected = marketMode === 'combine' ? markets : markets.slice(0, 1)
+        if (selected.length === 0)
+            requests.push({pairIndex, pair, market: null})
+        for (const market of selected)
+            requests.push({pairIndex, pair, market})
+    })
+    return requests
 }
 
 /**
@@ -99,6 +135,9 @@ function getSupportedProviders(sources) {
 const maxAttempts = 3
 const retryDelay = 200
 const marketsWindow = 6 * 60 * 60 * 1000
+
+//start of each provider's latest batch, reserved in advance, so batches stay apart across calls too
+const batchStarts = new Map()
 
 /**
  * @param {number} ms - delay in milliseconds
@@ -129,31 +168,33 @@ function emptyCandles(provider, timestamp, timeframe, count) {
 }
 
 /**
- * Fetches one pair from one provider. Always resolves to `count` candles: retries only retryable transport failures and
- * unconfirmed candles (with a linear back-off); after the last attempt unconfirmed candles are blanked, failures yield
- * placeholders, so the aggregated matrix stays dense.
+ * Fetches one market of a pair from one provider. Retries only retryable transport failures and unconfirmed candles
+ * (with a linear back-off).
  * @param {PriceProviderBase} provider - provider to query
  * @param {Pair} pair - pair to fetch
+ * @param {Market|null} [market] - market to read; see `getTradesData`
  * @param {number} timestamp - first candle timestamp in seconds
  * @param {number} timeframe - timeframe in minutes
  * @param {number} count - number of candles
  * @param {number} timeout - request timeout in milliseconds
- * @returns {Promise<TradeData[]>}
+ * @returns {Promise<TradeData[]|null>} `count` candles, those still unconfirmed after the last attempt left unconfirmed;
+ * null when no attempt returned data
  */
-async function fetchPairTradesData(provider, pair, timestamp, timeframe, count, timeout) {
+async function fetchMarketTradesData(provider, pair, market, timestamp, timeframe, count, timeout) {
+    const label = market ? `${pair.name} (${market.symbol})` : pair.name
     const errors = []
     let lastTradesData = null
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
-            const tradesData = await provider.getTradesData(pair, timestamp, timeframe, count, timeout)
+            const tradesData = await provider.getTradesData(pair, timestamp, timeframe, count, timeout, market)
             if (!tradesData) {
-                console.debug(`No data for ${pair.name} from ${provider.name}`)
+                console.debug(`No data for ${label} from ${provider.name}`)
                 return emptyCandles(provider, timestamp, timeframe, count)
             }
             if (tradesData.every(trade => trade.completed))
                 return tradesData
             lastTradesData = tradesData
-            console.debug(`Incomplete data for ${pair.name} from ${provider.name}. ${attempt < maxAttempts ? 'Retrying...' : 'Keeping the confirmed candles.'}`)
+            console.debug(`Incomplete data for ${label} from ${provider.name}. ${attempt < maxAttempts ? 'Retrying...' : 'Keeping the confirmed candles.'}`)
         } catch (error) {
             errors.push(error.message)
             if (!(error instanceof RequestError) || !error.retryable)
@@ -163,10 +204,61 @@ async function fetchPairTradesData(provider, pair, timestamp, timeframe, count, 
             await sleep(retryDelay * attempt)
     }
     if (errors.length > 0)
-        console.warn(`Failed to get data for ${pair.name} from ${provider.name}: ${errors.join(', ')}`)
-    if (lastTradesData)
-        return lastTradesData.map(trade => trade.completed ? trade : emptyCandle(provider, trade.ts))
-    return emptyCandles(provider, timestamp, timeframe, count)
+        console.warn(`Failed to get data for ${label} from ${provider.name}: ${errors.join(', ')}`)
+    return lastTradesData
+}
+
+/**
+ * Turns the candles of a pair's markets into the provider's `count` candles for the pair, so the aggregated matrix
+ * stays dense. Each minute is the exact sum of the confirmed candles of the markets that returned data: a market that
+ * failed, or a candle still unconfirmed, is left out, and a minute with nothing left is blank. A node that missed a
+ * market reports a smaller sum that the other nodes do not confirm, just as they would not confirm a blank one; when
+ * every node missed the same market, their smaller sums agree and the source still counts.
+ * @param {PriceProviderBase} provider - source of the candles
+ * @param {Array<TradeData[]|null>} marketsTradesData - candles of each market, as `fetchMarketTradesData` returns them
+ * @param {number} timestamp - first candle timestamp in seconds
+ * @param {number} timeframe - timeframe in minutes
+ * @param {number} count - number of candles
+ * @returns {TradeData[]}
+ */
+function mergeMarketsTradesData(provider, marketsTradesData, timestamp, timeframe, count) {
+    const fetched = marketsTradesData.filter(tradesData => tradesData)
+    if (fetched.length === 0)
+        return emptyCandles(provider, timestamp, timeframe, count)
+    if (fetched.length === 1)
+        return fetched[0].map(trade => trade.completed ? trade : emptyCandle(provider, trade.ts))
+    return Array.from({length: count}, (_, i) => {
+        const ts = timestamp + i * timeframe * 60
+        const trades = fetched
+            .map(tradesData => tradesData[i])
+            .filter(trade => trade && trade.completed && trade.ts === ts)
+        if (trades.length === 0)
+            return emptyCandle(provider, ts)
+        let volume = 0n
+        let quoteVolume = 0n
+        for (const trade of trades) {
+            volume += trade.volume
+            quoteVolume += trade.quoteVolume
+        }
+        return new TradeData({ts, volume, quoteVolume, inversed: false, source: provider.name, completed: true})
+    })
+}
+
+/**
+ * Waits for the provider's next batch slot. Batches of one provider start at least `batchDelay` apart whichever call
+ * they belong to, so a call that follows another one right away, or runs next to it, does not double the request rate.
+ * The slot is reserved before the wait, so concurrent calls take turns. Nothing waits after a call's last batch.
+ * @param {PriceProviderBase} provider - provider about to send a batch
+ * @param {number} batchDelay - minimum milliseconds between the starts of two batches
+ * @returns {Promise<void>}
+ */
+async function waitForBatchSlot(provider, batchDelay) {
+    const now = Date.now()
+    const previous = batchStarts.get(provider)
+    const slot = previous === undefined || !(batchDelay > 0) ? now : Math.max(now, previous + batchDelay)
+    batchStarts.set(provider, slot)
+    if (slot > now)
+        await sleep(slot - now)
 }
 
 /**
@@ -198,39 +290,38 @@ async function ensureMarketLoaded(provider, timeout) {
 
 /**
  * @param {PriceProviderBase} provider - provider to fetch from
- * @param {Array<Pair[]>} pairsBatches - pairs split into batches
+ * @param {Pair[]} pairs - pairs to fetch
  * @param {number} timestamp - first candle timestamp in seconds
  * @param {number} timeframe - timeframe in minutes
  * @param {number} count - number of candles
- * @param {number} batchDelay - delay between batches in milliseconds
- * @param {number} timeout - request timeout in milliseconds
+ * @param {{batchSize: number, batchDelay: number, timeout: number, marketMode: string}} options - batch size in
+ * requests, minimum milliseconds between batch starts, request timeout in milliseconds, market mode
  * @returns {Promise<Array<TradeData[]>>} trades data for every pair, or null if the provider failed
  */
-async function getProviderTradesData(provider, pairsBatches, timestamp, timeframe, count, batchDelay, timeout) {
-    const allTradesData = []
+async function getProviderTradesData(provider, pairs, timestamp, timeframe, count, {batchSize, batchDelay, timeout, marketMode}) {
     //defence in depth: every callee swallows its own failures today, so this cannot fire unless a future provider throws synchronously
     try {
         await ensureMarketLoaded(provider, timeout)
-        for (const pairsBatch of pairsBatches) {
-            const batchStart = Date.now()
-            const tradesDataPromises = []
-            for (const pair of pairsBatch) {
-                const fetchPromise = fetchPairTradesData(provider, pair, timestamp, timeframe, count, timeout)
-                tradesDataPromises.push(fetchPromise)
-            }
-            allTradesData.push(...(await Promise.all(tradesDataPromises)))
-            if (batchDelay > 0) { //delay between batches
-                const elapsed = Date.now() - batchStart
-                if (elapsed < batchDelay) {
-                    await new Promise(resolve => setTimeout(resolve, batchDelay - elapsed))
-                }
-            }
+        const requests = getMarketRequests(provider, pairs, marketMode)
+        const results = new Array(requests.length)
+        const fetchRequest = async index => {
+            const {pair, market} = requests[index]
+            results[index] = await fetchMarketTradesData(provider, pair, market, timestamp, timeframe, count, timeout)
         }
+        const indexes = requests.map((_, index) => index)
+        //a pair without a market is answered without a request (zero or identity candles), so it takes no batch slot
+        await Promise.all(indexes.filter(index => !requests[index].market).map(fetchRequest))
+        for (const batch of getBatches(indexes.filter(index => requests[index].market), batchSize)) {
+            await waitForBatchSlot(provider, batchDelay)
+            await Promise.all(batch.map(fetchRequest))
+        }
+        const marketsTradesData = pairs.map(() => [])
+        requests.forEach(({pairIndex}, i) => marketsTradesData[pairIndex].push(results[i]))
+        return marketsTradesData.map(pairMarkets => mergeMarketsTradesData(provider, pairMarkets, timestamp, timeframe, count))
     } catch (error) {
         console.error(`Error fetching data from ${provider.name}: ${error.message}`)
         return null
     }
-    return allTradesData
 }
 
 class ExchangesPriceProvider {
@@ -251,13 +342,15 @@ class ExchangesPriceProvider {
             throw new Error('Timeframe should be less than or equal to 60 minutes')
         }
 
-        const {batchSize, sources, batchDelay, timeout} = {...defaultFetchOptions, ...options}
+        const {batchSize, sources, batchDelay, timeout, marketMode = defaultFetchOptions.marketMode} = {...defaultFetchOptions, ...options}
+        if (!marketModes.includes(marketMode))
+            throw new Error(`Unknown market mode: ${marketMode}`)
 
         const fetchPromises = []
-        const pairsBatches = getPairsBatches(pairs, batchSize)
+        const fetchOptions = {batchSize, batchDelay, timeout, marketMode}
         const providers = getSupportedProviders(sources)
         for (const provider of providers) {
-            const providerTradesDataPromise = getProviderTradesData(provider, pairsBatches, from, period, count, batchDelay, timeout)
+            const providerTradesDataPromise = getProviderTradesData(provider, pairs, from, period, count, fetchOptions)
             fetchPromises.push(providerTradesDataPromise)
         }
         const providersResult = await Promise.all(fetchPromises)
@@ -291,7 +384,8 @@ class ExchangesPriceProvider {
 }
 
 //exposed for tests
-ExchangesPriceProvider.fetchPairTradesData = fetchPairTradesData
+ExchangesPriceProvider.fetchMarketTradesData = fetchMarketTradesData
+ExchangesPriceProvider.mergeMarketsTradesData = mergeMarketsTradesData
 ExchangesPriceProvider.ensureMarketLoaded = ensureMarketLoaded
 ExchangesPriceProvider.providers = supportedProviders
 
