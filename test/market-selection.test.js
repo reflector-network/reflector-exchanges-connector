@@ -10,6 +10,8 @@ const OkxPriceProvider = require('../src/providers/okx-price-provider')
 const KrakenPriceProvider = require('../src/providers/kraken-price-provider')
 const CoinbasePriceProvider = require('../src/providers/coinbase-price-provider')
 const GatePriceProvider = require('../src/providers/gate-price-provider')
+const BitstampPriceProvider = require('../src/providers/bitstamp-price-provider')
+const CryptoComPriceProvider = require('../src/providers/cryptocom-price-provider')
 const ExchangesPriceProvider = require('../src')
 
 const usd = getAsset('USD')
@@ -47,6 +49,20 @@ describe('each source tries its quote currencies in its own order', () => {
     test('coinbase and kraken try USD, then USDT, then USDC', () => {
         expect(symbols(withMarkets(new CoinbasePriceProvider(), ['BTC-USDC', 'BTC-USDT', 'BTC-USD']), btc)).toEqual(['BTC-USD', 'BTC-USDT', 'BTC-USDC'])
         expect(symbols(withMarkets(new KrakenPriceProvider(), ['XBTUSDC', 'XBTUSDT', 'XBTUSD']), btc)).toEqual(['XBTUSD', 'XBTUSDT', 'XBTUSDC'])
+    })
+
+    test('bitstamp and cryptocom try USD, then USDT, then USDC', () => {
+        expect(symbols(withMarkets(new BitstampPriceProvider(), ['btcusdc', 'btcusdt', 'btcusd']), btc)).toEqual(['btcusd', 'btcusdt', 'btcusdc'])
+        expect(symbols(withMarkets(new CryptoComPriceProvider(), ['BTC_USDC', 'BTC_USDT', 'BTC_USD']), btc)).toEqual(['BTC_USD', 'BTC_USDT', 'BTC_USDC'])
+    })
+
+    test('bitstamp prices USDT on its USDT/USD market and USDC on USDC/USD', () => {
+        const provider = withMarkets(new BitstampPriceProvider(), ['usdcusdt', 'usdtusd', 'usdcusd'])
+        expect(provider.getMarkets(new Pair(usd, getAsset('USDT')))).toEqual([
+            {symbol: 'usdtusd', inversed: true},
+            {symbol: 'usdcusdt', inversed: false}
+        ])
+        expect(symbols(provider, new Pair(usd, getAsset('USDC')))).toEqual(['usdcusd', 'usdcusdt'])
     })
 
     test('the first market is the one getSymbolInfo returns', () => {
@@ -199,6 +215,13 @@ describe('market mode', () => {
         //inverted market: the quote currency volume becomes the pair's volume
         expect(matrix.map(slot => slot[0][0].volume)).toEqual([1000000000n, 2000000000n])
         expect(matrix.map(slot => slot[0][0].quoteVolume)).toEqual([10000000n, 20000000n])
+    })
+
+    test('without a source list every default source answers, and gate stays off', async () => {
+        for (const provider of ExchangesPriceProvider.providers)
+            stubExchange(provider.name, [], () => [])
+        const matrix = await getPriceData(['BTC'], {})
+        expect(matrix[0][0].map(trade => trade.source).sort()).toEqual(['binance', 'bitstamp', 'bybit', 'coinbase', 'cryptocom', 'kraken', 'okx'])
     })
 
     test('an unknown mode is rejected', async () => {
@@ -386,7 +409,9 @@ describe('providers build the request from the market they are given', () => {
         ['okx', new OkxPriceProvider(), {code: '0', data: []}],
         ['kraken', new KrakenPriceProvider(), {error: [], result: {XYZQUOTE: [], last: 0}}],
         ['coinbase', new CoinbasePriceProvider(), []],
-        ['gate', new GatePriceProvider(), []]
+        ['gate', new GatePriceProvider(), []],
+        ['bitstamp', new BitstampPriceProvider(), {data: {pair: 'XYZ/QUOTE', ohlc: []}}],
+        ['cryptocom', new CryptoComPriceProvider(), {id: -1, method: 'public/get-candlestick', code: 0, result: {interval: '1m', data: [], instrument_name: 'XYZQUOTE'}}]
     ])('%s', async (name, provider, data) => {
         const urls = []
         provider.__makeRequest = url => {

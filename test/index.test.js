@@ -35,7 +35,7 @@ describe('index', () => {
 
     it('get prices', async () => {
         const provider = new ExchangesPriceProvider()
-        tradesData = await provider.getPriceData({assets, baseAsset: 'USD', from: timestamp, period: timeframe, count, options: {batchSize: 5, batchDelay: 1000, timeout: 3000, sources: ['binance', 'bybit', 'kraken', 'gate', 'okx', 'coinbase']}})
+        tradesData = await provider.getPriceData({assets, baseAsset: 'USD', from: timestamp, period: timeframe, count, options: {batchSize: 5, batchDelay: 1000, timeout: 3000, sources: ['binance', 'bybit', 'kraken', 'gate', 'okx', 'coinbase', 'bitstamp', 'cryptocom']}})
         expect(tradesData.length).toBe(count)
         expect(tradesData[0].length).toBe(assets.length)
     }, 30000)
@@ -64,7 +64,7 @@ describe('index', () => {
     it.skip('get prices with gateway', async () => {
         const provider = new ExchangesPriceProvider()
         provider.setGateway(proxies, null, true)
-        const newTradesData = await provider.getPriceData({assets, baseAsset: 'USD', from: timestamp, period: timeframe, count, options: {batchSize: 10, batchDelay: 1000, timeout: 3000, sources: ['binance', 'bybit', 'kraken', 'gate', 'okx', 'coinbase']}})
+        const newTradesData = await provider.getPriceData({assets, baseAsset: 'USD', from: timestamp, period: timeframe, count, options: {batchSize: 10, batchDelay: 1000, timeout: 3000, sources: ['binance', 'bybit', 'kraken', 'gate', 'okx', 'coinbase', 'bitstamp', 'cryptocom']}})
         expect(newTradesData.length).toBe(count)
         provider.setGateway(null)
         expect(newTradesData[0].length).toBe(tradesData[0].length)

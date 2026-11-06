@@ -5,6 +5,8 @@ const OkxPriceProvider = require('./providers/okx-price-provider')
 const KrakenPriceProvider = require('./providers/kraken-price-provider')
 const CoinbasePriceProvider = require('./providers/coinbase-price-provider')
 const GatePriceProvider = require('./providers/gate-price-provider')
+const BitstampPriceProvider = require('./providers/bitstamp-price-provider')
+const CryptoComPriceProvider = require('./providers/cryptocom-price-provider')
 const Pair = require('./models/pair')
 const TradeData = require('./models/trade-data')
 const {getAsset} = require('./assets-cache')
@@ -43,7 +45,12 @@ const RequestError = require('./providers/request-error')
  * the volumes of all its markets for the pair, one per quote currency
  */
 
-const defaultFetchOptions = {batchSize: 10, batchDelay: 2000, sources: ['binance', 'bybit', 'coinbase', 'kraken', 'okx'], marketMode: 'first'} //ignore gate for now
+const defaultFetchOptions = {
+    batchSize: 10,
+    batchDelay: 2000,
+    sources: ['binance', 'bybit', 'coinbase', 'kraken', 'okx', 'bitstamp', 'cryptocom'], //ignore gate for now
+    marketMode: 'first'
+}
 
 const marketModes = ['first', 'combine']
 
@@ -59,7 +66,9 @@ const supportedProviders = [
     new OkxPriceProvider(),
     new KrakenPriceProvider(),
     new GatePriceProvider(),
-    new CoinbasePriceProvider()
+    new CoinbasePriceProvider(),
+    new BitstampPriceProvider(),
+    new CryptoComPriceProvider()
 ]
 
 /**

@@ -1,6 +1,12 @@
 # @reflector/reflector-exchanges-connector
 
-Spot candles from Binance, Bybit, Coinbase, Gate, Kraken and OKX for the Reflector oracle, aggregated per asset and minute.
+Spot candles from Binance, Bitstamp, Bybit, Coinbase, Crypto.com, Gate, Kraken and OKX for the Reflector oracle, aggregated per asset and minute.
+
+## Sources
+
+`options.sources` names the exchanges to read. Without it the connector reads `binance`, `bybit`, `coinbase`, `kraken`, `okx`, `bitstamp` and `cryptocom`; `gate` is implemented but read only when named. Every node must read the same sources, since each one adds its own candles to the matrix.
+
+Bitstamp, Coinbase and Crypto.com report base volume only, so their quote volume is the base volume times the average of the candle's open, high, low and close. Neither Bitstamp nor Crypto.com flags an unconfirmed candle, and both return the minute that is still open when the window covers it, so callers ask for closed minutes only; `reflector-node` asks at T+15 s for the minute that closed at T.
 
 ## Requests
 
@@ -27,7 +33,7 @@ Each provider tries its quote currencies in its own order (`quoteOrder`), most l
 | Providers | Order |
 | --- | --- |
 | Binance, Bybit, OKX, Gate | USDT, USDC, USD |
-| Coinbase, Kraken | USD, USDT, USDC |
+| Bitstamp, Coinbase, Crypto.com, Kraken | USD, USDT, USDC |
 
 The order applies to the aliases of the base asset. Aliases it does not list follow in glossary order, so a base asset other than USD keeps its glossary order. `getMarkets(pair)` returns at most one market per quote currency, in that order. For each quote currency a direct market is preferred over an inverted one, and the asset's aliases are tried in glossary order. A quote currency the asset itself trades as is skipped, so an asset is never priced against itself. `getSymbolInfo(pair)` is the first of them.
 
