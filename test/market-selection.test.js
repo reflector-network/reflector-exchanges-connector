@@ -12,6 +12,9 @@ const CoinbasePriceProvider = require('../src/providers/coinbase-price-provider'
 const GatePriceProvider = require('../src/providers/gate-price-provider')
 const BitstampPriceProvider = require('../src/providers/bitstamp-price-provider')
 const CryptoComPriceProvider = require('../src/providers/cryptocom-price-provider')
+const KucoinPriceProvider = require('../src/providers/kucoin-price-provider')
+const BitgetPriceProvider = require('../src/providers/bitget-price-provider')
+const WhitebitPriceProvider = require('../src/providers/whitebit-price-provider')
 const ExchangesPriceProvider = require('../src')
 
 const usd = getAsset('USD')
@@ -49,6 +52,12 @@ describe('each source tries its quote currencies in its own order', () => {
     test('coinbase and kraken try USD, then USDT, then USDC', () => {
         expect(symbols(withMarkets(new CoinbasePriceProvider(), ['BTC-USDC', 'BTC-USDT', 'BTC-USD']), btc)).toEqual(['BTC-USD', 'BTC-USDT', 'BTC-USDC'])
         expect(symbols(withMarkets(new KrakenPriceProvider(), ['XBTUSDC', 'XBTUSDT', 'XBTUSD']), btc)).toEqual(['XBTUSD', 'XBTUSDT', 'XBTUSDC'])
+    })
+
+    test('kucoin, bitget and whitebit try USDT, then USDC, then USD', () => {
+        expect(symbols(withMarkets(new KucoinPriceProvider(), ['BTC-USD', 'BTC-USDC', 'BTC-USDT']), btc)).toEqual(['BTC-USDT', 'BTC-USDC', 'BTC-USD'])
+        expect(symbols(withMarkets(new BitgetPriceProvider(), ['BTCUSD', 'BTCUSDC', 'BTCUSDT']), btc)).toEqual(['BTCUSDT', 'BTCUSDC', 'BTCUSD'])
+        expect(symbols(withMarkets(new WhitebitPriceProvider(), ['BTC_USD', 'BTC_USDC', 'BTC_USDT']), btc)).toEqual(['BTC_USDT', 'BTC_USDC', 'BTC_USD'])
     })
 
     test('bitstamp and cryptocom try USD, then USDT, then USDC', () => {
@@ -221,7 +230,7 @@ describe('market mode', () => {
         for (const provider of ExchangesPriceProvider.providers)
             stubExchange(provider.name, [], () => [])
         const matrix = await getPriceData(['BTC'], {})
-        expect(matrix[0][0].map(trade => trade.source).sort()).toEqual(['binance', 'bitstamp', 'bybit', 'coinbase', 'cryptocom', 'kraken', 'okx'])
+        expect(matrix[0][0].map(trade => trade.source).sort()).toEqual(['binance', 'bitget', 'bitstamp', 'bybit', 'coinbase', 'cryptocom', 'kraken', 'kucoin', 'okx', 'whitebit'])
     })
 
     test('an unknown mode is rejected', async () => {
@@ -411,7 +420,10 @@ describe('providers build the request from the market they are given', () => {
         ['coinbase', new CoinbasePriceProvider(), []],
         ['gate', new GatePriceProvider(), []],
         ['bitstamp', new BitstampPriceProvider(), {data: {pair: 'XYZ/QUOTE', ohlc: []}}],
-        ['cryptocom', new CryptoComPriceProvider(), {id: -1, method: 'public/get-candlestick', code: 0, result: {interval: '1m', data: [], instrument_name: 'XYZQUOTE'}}]
+        ['cryptocom', new CryptoComPriceProvider(), {id: -1, method: 'public/get-candlestick', code: 0, result: {interval: '1m', data: [], instrument_name: 'XYZQUOTE'}}],
+        ['kucoin', new KucoinPriceProvider(), {code: '200000', data: []}],
+        ['bitget', new BitgetPriceProvider(), {code: '00000', msg: 'success', requestTime: 0, data: []}],
+        ['whitebit', new WhitebitPriceProvider(), {success: true, message: null, result: []}]
     ])('%s', async (name, provider, data) => {
         const urls = []
         provider.__makeRequest = url => {

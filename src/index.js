@@ -7,6 +7,9 @@ const CoinbasePriceProvider = require('./providers/coinbase-price-provider')
 const GatePriceProvider = require('./providers/gate-price-provider')
 const BitstampPriceProvider = require('./providers/bitstamp-price-provider')
 const CryptoComPriceProvider = require('./providers/cryptocom-price-provider')
+const KucoinPriceProvider = require('./providers/kucoin-price-provider')
+const BitgetPriceProvider = require('./providers/bitget-price-provider')
+const WhitebitPriceProvider = require('./providers/whitebit-price-provider')
 const Pair = require('./models/pair')
 const TradeData = require('./models/trade-data')
 const {getAsset} = require('./assets-cache')
@@ -48,7 +51,7 @@ const RequestError = require('./providers/request-error')
 const defaultFetchOptions = {
     batchSize: 10,
     batchDelay: 2000,
-    sources: ['binance', 'bybit', 'coinbase', 'kraken', 'okx', 'bitstamp', 'cryptocom'], //ignore gate for now
+    sources: ['binance', 'bybit', 'coinbase', 'kraken', 'okx', 'bitstamp', 'cryptocom', 'kucoin', 'bitget', 'whitebit'], //ignore gate for now
     marketMode: 'first'
 }
 
@@ -68,7 +71,10 @@ const supportedProviders = [
     new GatePriceProvider(),
     new CoinbasePriceProvider(),
     new BitstampPriceProvider(),
-    new CryptoComPriceProvider()
+    new CryptoComPriceProvider(),
+    new KucoinPriceProvider(),
+    new BitgetPriceProvider(),
+    new WhitebitPriceProvider()
 ]
 
 /**
