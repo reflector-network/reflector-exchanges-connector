@@ -18,6 +18,8 @@ A provider cannot loosen these limits: per-request `maxRedirects`, `maxContentLe
 
 `getPriceData({assets, baseAsset, from, period, count, options})` returns `count` slots of `assets.length` arrays of `TradeData`. The matrix is dense: a pair or provider that produced nothing contributes zero-volume candles, which the node treats as no data. Candles are placed by their own timestamp, so a minute an exchange omitted is zero and later minutes stay aligned. Unconfirmed candles (OKX, Gate) are attempted up to three times (two retries) with a back-off and then blanked; confirmed candles are kept. Exchange error envelopes returned with HTTP 200 are rejected and every numeric field is validated before it is parsed.
 
+The whole fetch has a 45 s limit (`options.deadline`, in milliseconds). When it runs out, `getPriceData` returns what has answered; every pair still running gets the same zero-volume candles as a failed request, and a warning names the exchange and how many pairs were left out. No new batch or retry starts after the limit. So an exchange that hangs or fails slowly costs only its own data, and the other exchanges' data still reaches the node in time.
+
 Market lists refresh in 6-hour wall-clock windows so all nodes reload after the same boundary and select the same symbol for a pair.
 
 ## Asset aliases
