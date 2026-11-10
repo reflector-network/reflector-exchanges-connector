@@ -38,9 +38,14 @@ const RequestError = require('./providers/request-error')
  * @property {number} [batchDelay] - delay between batches
  * @property {string[]} [sources] - list of sources to fetch data from
  * @property {number} [timeout] - request timeout
+ * @property {number} [deadline] - time limit for the whole fetch, in milliseconds; requests still running then are ignored
  */
 
-const defaultFetchOptions = {batchSize: 10, batchDelay: 2000, sources: ['binance', 'bybit', 'coinbase', 'kraken', 'okx']} //ignore gate for now
+//one exchange that hangs must not hold back the others: after the deadline the fetch returns what has answered, and every
+//pair still running counts as a failed request. 45 s keeps the fetch well inside the node's 90 s budget
+const fetchDeadline = 45000
+
+const defaultFetchOptions = {batchSize: 10, batchDelay: 2000, sources: ['binance', 'bybit', 'coinbase', 'kraken', 'okx'], deadline: fetchDeadline} //ignore gate for now
 
 /**
  * @typedef {Object} PriceData
@@ -109,6 +114,23 @@ function sleep(ms) {
 }
 
 /**
+ * @param {Promise<any>} promise - work to wait for; must not reject
+ * @param {number} deadlineAt - epoch milliseconds
+ * @returns {Promise<boolean>} true if the deadline came first
+ */
+async function settleBefore(promise, deadlineAt) {
+    let timer = null
+    const expired = new Promise(resolve => {
+        timer = setTimeout(() => resolve(true), Math.max(0, deadlineAt - Date.now()))
+    })
+    try {
+        return await Promise.race([promise.then(() => false), expired])
+    } finally {
+        clearTimeout(timer)
+    }
+}
+
+/**
  * @param {PriceProviderBase} provider - source of the candle
  * @param {number} ts - candle timestamp in seconds
  * @returns {TradeData} a zero-volume completed candle, the node's representation of "no data"
@@ -131,19 +153,22 @@ function emptyCandles(provider, timestamp, timeframe, count) {
 /**
  * Fetches one pair from one provider. Always resolves to `count` candles: retries only retryable transport failures and
  * unconfirmed candles (with a linear back-off); after the last attempt unconfirmed candles are blanked, failures yield
- * placeholders, so the aggregated matrix stays dense.
+ * placeholders, so the aggregated matrix stays dense. No retry starts after the deadline.
  * @param {PriceProviderBase} provider - provider to query
  * @param {Pair} pair - pair to fetch
  * @param {number} timestamp - first candle timestamp in seconds
  * @param {number} timeframe - timeframe in minutes
  * @param {number} count - number of candles
  * @param {number} timeout - request timeout in milliseconds
+ * @param {number} [deadlineAt] - epoch milliseconds after which no retry starts
  * @returns {Promise<TradeData[]>}
  */
-async function fetchPairTradesData(provider, pair, timestamp, timeframe, count, timeout) {
+async function fetchPairTradesData(provider, pair, timestamp, timeframe, count, timeout, deadlineAt = Infinity) {
     const errors = []
     let lastTradesData = null
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (attempt > 1 && Date.now() >= deadlineAt)
+            break
         try {
             const tradesData = await provider.getTradesData(pair, timestamp, timeframe, count, timeout)
             if (!tradesData) {
@@ -174,14 +199,17 @@ async function fetchPairTradesData(provider, pair, timestamp, timeframe, count, 
  * every node refreshes in the first tick after the same boundary and picks the same symbols.
  * @param {PriceProviderBase} provider - provider whose markets may be stale
  * @param {number} timeout - request timeout in milliseconds
+ * @param {number} [deadlineAt] - epoch milliseconds after which no retry starts
  * @returns {Promise<void>}
  */
-async function ensureMarketLoaded(provider, timeout) {
+async function ensureMarketLoaded(provider, timeout, deadlineAt = Infinity) {
     const currentWindow = Math.floor(Date.now() / marketsWindow)
     if (provider.markets.length > 0 && Math.floor(provider.marketsLoadedAt / marketsWindow) === currentWindow)
         return
     const errors = []
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (attempt > 1 && Date.now() >= deadlineAt)
+            break
         try {
             await provider.loadMarkets(timeout)
             return
@@ -197,6 +225,8 @@ async function ensureMarketLoaded(provider, timeout) {
 }
 
 /**
+ * Fills `slots` (one per pair, in pair order) as each pair settles, so a caller that stops waiting at the deadline keeps
+ * every pair that has answered. No batch starts after the deadline.
  * @param {PriceProviderBase} provider - provider to fetch from
  * @param {Array<Pair[]>} pairsBatches - pairs split into batches
  * @param {number} timestamp - first candle timestamp in seconds
@@ -204,21 +234,26 @@ async function ensureMarketLoaded(provider, timeout) {
  * @param {number} count - number of candles
  * @param {number} batchDelay - delay between batches in milliseconds
  * @param {number} timeout - request timeout in milliseconds
- * @returns {Promise<Array<TradeData[]>>} trades data for every pair, or null if the provider failed
+ * @param {Array<TradeData[]>} slots - receives the trades data of each pair
+ * @param {number} deadlineAt - epoch milliseconds after which no new work starts
+ * @returns {Promise<boolean>} false if the provider failed as a whole
  */
-async function getProviderTradesData(provider, pairsBatches, timestamp, timeframe, count, batchDelay, timeout) {
-    const allTradesData = []
+async function getProviderTradesData(provider, pairsBatches, timestamp, timeframe, count, batchDelay, timeout, slots, deadlineAt) {
     //defence in depth: every callee swallows its own failures today, so this cannot fire unless a future provider throws synchronously
     try {
-        await ensureMarketLoaded(provider, timeout)
+        await ensureMarketLoaded(provider, timeout, deadlineAt)
+        let offset = 0
         for (const pairsBatch of pairsBatches) {
+            if (Date.now() >= deadlineAt)
+                break
             const batchStart = Date.now()
-            const tradesDataPromises = []
-            for (const pair of pairsBatch) {
-                const fetchPromise = fetchPairTradesData(provider, pair, timestamp, timeframe, count, timeout)
-                tradesDataPromises.push(fetchPromise)
-            }
-            allTradesData.push(...(await Promise.all(tradesDataPromises)))
+            const batchOffset = offset
+            await Promise.all(pairsBatch.map((pair, i) =>
+                fetchPairTradesData(provider, pair, timestamp, timeframe, count, timeout, deadlineAt)
+                    .then(tradesData => {
+                        slots[batchOffset + i] = tradesData
+                    })))
+            offset += pairsBatch.length
             if (batchDelay > 0) { //delay between batches
                 const elapsed = Date.now() - batchStart
                 if (elapsed < batchDelay) {
@@ -228,9 +263,9 @@ async function getProviderTradesData(provider, pairsBatches, timestamp, timefram
         }
     } catch (error) {
         console.error(`Error fetching data from ${provider.name}: ${error.message}`)
-        return null
+        return false
     }
-    return allTradesData
+    return true
 }
 
 class ExchangesPriceProvider {
@@ -251,30 +286,42 @@ class ExchangesPriceProvider {
             throw new Error('Timeframe should be less than or equal to 60 minutes')
         }
 
-        const {batchSize, sources, batchDelay, timeout} = {...defaultFetchOptions, ...options}
+        const {batchSize, sources, batchDelay, timeout, deadline} = {...defaultFetchOptions, ...options}
+        const fetchTime = deadline > 0 ? deadline : fetchDeadline //a missing or invalid value must not end the fetch at once
+        const deadlineAt = Date.now() + fetchTime
 
-        const fetchPromises = []
         const pairsBatches = getPairsBatches(pairs, batchSize)
-        const providers = getSupportedProviders(sources)
-        for (const provider of providers) {
-            const providerTradesDataPromise = getProviderTradesData(provider, pairsBatches, from, period, count, batchDelay, timeout)
-            fetchPromises.push(providerTradesDataPromise)
-        }
-        const providersResult = await Promise.all(fetchPromises)
+        const providersData = getSupportedProviders(sources).map(provider => {
+            const providerData = {provider, slots: new Array(pairs.length), failed: false}
+            const {slots} = providerData
+            providerData.done = getProviderTradesData(provider, pairsBatches, from, period, count, batchDelay, timeout, slots, deadlineAt)
+                .then(ok => {
+                    providerData.failed = !ok
+                })
+            return providerData
+        })
+        await settleBefore(Promise.all(providersData.map(p => p.done)), deadlineAt)
         //dense matrix: every timestamp has assets.length slots even when a pair or a provider produced nothing
         const tradesData = Array.from({length: count}, () => pairs.map(() => []))
-        for (const providerResult of providersResult) {
-            //defence in depth: getProviderTradesData cannot return null today (see the comment on its try)
-            if (!providerResult)
+        for (const {provider, slots, failed} of providersData) {
+            //defence in depth: getProviderTradesData cannot fail today (see the comment on its try)
+            if (failed)
                 continue
+            let ignored = 0
             for (let assetIndex = 0; assetIndex < pairs.length; assetIndex++) {
-                const assetTradeData = providerResult[assetIndex] ?? []
+                let assetTradeData = slots[assetIndex]
+                if (!assetTradeData) { //still running at the deadline: same placeholders as a failed request
+                    ignored++
+                    assetTradeData = emptyCandles(provider, from, period, count)
+                }
                 for (let timestampIndex = 0; timestampIndex < count; timestampIndex++) {
                     const trade = assetTradeData[timestampIndex]
                     if (trade)
                         tradesData[timestampIndex][assetIndex].push(trade)
                 }
             }
+            if (ignored > 0)
+                console.warn(`${ignored} of ${pairs.length} pairs from ${provider.name} did not answer within ${fetchTime} ms and were left out`)
         }
         return tradesData
     }

@@ -124,6 +124,117 @@ describe('getPriceData is dense under partial failure', () => {
     })
 })
 
+describe('getPriceData deadline', () => {
+    /**
+     * @param {string} source - provider name
+     * @returns {TradeData[]} two confirmed candles
+     */
+    function answer(source) {
+        return [start, start + 60].map(ts => new TradeData({ts, volume: '100', quoteVolume: '200', inversed: false, source, completed: true}))
+    }
+
+    /**
+     * Replaces a real provider's network calls
+     * @param {string} name - provider name
+     * @param {Function} getTradesData - stubbed getTradesData
+     * @returns {{getTradesData: jest.SpyInstance, restore: Function}}
+     */
+    function mockProvider(name, getTradesData) {
+        const [provider] = ExchangesPriceProvider.providers.filter(p => p.name === name)
+        const loadMarkets = jest.spyOn(provider, 'loadMarkets').mockImplementation(() => {
+            provider.markets = ['BTCUSDT']
+            provider.marketsLoadedAt = Date.now()
+        })
+        const trades = jest.spyOn(provider, 'getTradesData').mockImplementation(getTradesData)
+        return {
+            getTradesData: trades,
+            restore: () => {
+                loadMarkets.mockRestore()
+                trades.mockRestore()
+            }
+        }
+    }
+
+    const hang = () => new Promise(() => {})
+    const later = (ms, value) => new Promise(resolve => setTimeout(() => resolve(value), ms))
+
+    function fetch(assets, sources, options = {}) {
+        return new ExchangesPriceProvider().getPriceData({
+            assets,
+            baseAsset: 'USD',
+            from: start,
+            period: 60,
+            count: 2,
+            options: {batchSize: 0, batchDelay: 0, timeout: 100, deadline: 300, sources, ...options}
+        })
+    }
+
+    const bySource = (trades, source) => trades.find(t => t.source === source)
+
+    let mocks = []
+    afterEach(() => {
+        mocks.forEach(m => m.restore())
+        mocks = []
+    })
+
+    test('an exchange that hangs does not hold back the others', async () => {
+        mocks = [mockProvider('binance', () => answer('binance')), mockProvider('kraken', hang)]
+        const started = Date.now()
+        const matrix = await fetch(['BTC'], ['binance', 'kraken'])
+        const elapsed = Date.now() - started
+        expect(elapsed).toBeGreaterThanOrEqual(290)
+        expect(elapsed).toBeLessThan(2000)
+        for (const slot of [matrix[0][0], matrix[1][0]]) {
+            expect(bySource(slot, 'binance').volume).toBe(1000000000n)
+            expect(bySource(slot, 'kraken').volume).toBe(0n) //same placeholder as a failed request
+        }
+        expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('1 of 1 pairs from kraken'))
+    })
+
+    test('pairs that answered before the deadline are kept', async () => {
+        mocks = [mockProvider('kraken', p => (p.quote.name === 'ETH' ? hang() : answer('kraken')))]
+        const matrix = await fetch(['BTC', 'ETH'], ['kraken'])
+        expect(bySource(matrix[0][0], 'kraken').volume).toBe(1000000000n)
+        expect(bySource(matrix[0][1], 'kraken').volume).toBe(0n)
+        expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('1 of 2 pairs from kraken'))
+    })
+
+    test('no batch starts after the deadline', async () => {
+        const kraken = mockProvider('kraken', () => later(400, answer('kraken')))
+        mocks = [kraken]
+        await fetch(['BTC', 'ETH'], ['kraken'], {batchSize: 1})
+        await later(300)
+        expect(kraken.getTradesData).toHaveBeenCalledTimes(1)
+    })
+
+    test('no retry starts after the deadline', async () => {
+        const provider = stubProvider('test', async () => {
+            await later(100)
+            throw new RequestError('api.example', {status: 502})
+        })
+        const result = await fetchPairTradesData(provider, pair, start, 1, 2, 100, Date.now() + 50)
+        expect(provider.getTradesData).toHaveBeenCalledTimes(1)
+        expect(result.every(t => t.volume === 0n)).toBe(true)
+    })
+
+    test('a healthy fetch returns as soon as every exchange answers', async () => {
+        mocks = [mockProvider('binance', () => later(20, answer('binance'))), mockProvider('kraken', () => answer('kraken'))]
+        const started = Date.now()
+        const matrix = await fetch(['BTC'], ['binance', 'kraken'], {deadline: 10000})
+        expect(Date.now() - started).toBeLessThan(1000)
+        expect(bySource(matrix[0][0], 'binance').volume).toBe(1000000000n)
+        expect(bySource(matrix[0][0], 'kraken').volume).toBe(1000000000n)
+    })
+
+    test('a missing or invalid deadline falls back to the default instead of ending the fetch at once', async () => {
+        mocks = [mockProvider('binance', () => later(50, answer('binance')))]
+        for (const deadline of [0, -1, undefined, 'soon']) {
+            const matrix = await fetch(['BTC'], ['binance'], {deadline})
+            expect(bySource(matrix[0][0], 'binance').volume).toBe(1000000000n)
+        }
+    })
+})
+
 describe('market refresh is aligned to 6-hour windows', () => {
     const window = 6 * 60 * 60 * 1000
 
